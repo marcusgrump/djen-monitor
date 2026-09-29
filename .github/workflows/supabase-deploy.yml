@@ -13,6 +13,9 @@ on:
 
 jobs:
   deploy:
+    # Só roda depois que a variável SUPABASE_PROJECT_REF e os secrets
+    # SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD forem configurados no repositório.
+    if: ${{ vars.SUPABASE_PROJECT_REF != '' }}
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -31,7 +34,7 @@ jobs:
         run: npm ci
 
       - name: Vincular ao projeto Supabase
-        run: npx supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: npx supabase link --project-ref ${{ vars.SUPABASE_PROJECT_REF }}
 
       - name: Aplicar migrations no banco
         run: npx supabase db push

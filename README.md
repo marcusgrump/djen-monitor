@@ -156,12 +156,12 @@ as notificações). Cada monitor também pode ter destinatários próprios.
 3. Em **Settings → Secrets and variables → Actions**:
    - Aba **Variables**: crie `NEXT_PUBLIC_SUPABASE_URL` com a URL do
      projeto (`https://SEU_PROJECT_REF.supabase.co`).
-   - Aba **Secrets**: crie `NEXT_PUBLIC_SUPABASE_ANON_KEY` (chave "anon" em
-     **Project Settings → API Keys**), e também
-     `SUPABASE_ACCESS_TOKEN` (gere em
-     <https://supabase.com/dashboard/account/tokens>),
-     `SUPABASE_DB_PASSWORD` (a senha do banco do passo 1) e
-     `SUPABASE_PROJECT_REF`.
+   - Aba **Secrets**: crie `NEXT_PUBLIC_SUPABASE_ANON_KEY` (chave publishable
+     em **Project Settings → API Keys**).
+   - *Opcional* (deploy automático da Supabase a cada mudança em `supabase/**`):
+     variável `SUPABASE_PROJECT_REF` e secrets `SUPABASE_ACCESS_TOKEN` (gere em
+     <https://supabase.com/dashboard/account/tokens>) e `SUPABASE_DB_PASSWORD`.
+     Sem a variável `SUPABASE_PROJECT_REF`, esse workflow fica desligado.
 
    > A anon key é pública por natureza (fica exposta no navegador de
    > qualquer forma, protegida pelo RLS) — usar Secret aqui é só para não
