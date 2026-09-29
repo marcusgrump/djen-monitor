@@ -1,0 +1,23 @@
+name: Keepalive do Supabase
+
+# Projetos gratuitos do Supabase pausam automaticamente após 7 dias sem
+# atividade. Este workflow faz uma chamada leve e somente-leitura à REST API
+# duas vezes por semana para manter o projeto ativo indefinidamente.
+
+on:
+  schedule:
+    # Segunda e quinta às 09:00 UTC (06:00 no horário de Brasília).
+    - cron: "0 9 * * 1,4"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Requisição simples à REST do Supabase
+        run: |
+          curl --fail --silent --show-error \
+            --max-time 30 \
+            -H "apikey: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
+            "${{ vars.NEXT_PUBLIC_SUPABASE_URL }}/rest/v1/"

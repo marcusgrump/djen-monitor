@@ -1,0 +1,54 @@
+// Datas no fuso America/Sao_Paulo (o DJEN trabalha com datas civis brasileiras).
+// Usa apenas Intl (disponível no Deno e no Node).
+
+export const FUSO_BRASIL = 'America/Sao_Paulo';
+
+const fmtData = new Intl.DateTimeFormat('en-CA', {
+  timeZone: FUSO_BRASIL,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+const fmtHora = new Intl.DateTimeFormat('en-GB', {
+  timeZone: FUSO_BRASIL,
+  hour: '2-digit',
+  hour12: false,
+});
+
+/** 'YYYY-MM-DD' do instante informado, no fuso de São Paulo. */
+export function dataBrasil(instante: Date = new Date()): string {
+  // en-CA formata como YYYY-MM-DD
+  return fmtData.format(instante);
+}
+
+/** Hora (0-23) do instante no fuso de São Paulo. */
+export function horaBrasil(instante: Date = new Date()): number {
+  return Number(fmtHora.format(instante)) % 24;
+}
+
+/** Soma dias a uma data civil 'YYYY-MM-DD' (aritmética em UTC, sem efeito de fuso). */
+export function somarDias(dataIso: string, dias: number): string {
+  const [a, m, d] = dataIso.split('-').map(Number);
+  const t = Date.UTC(a, m - 1, d) + dias * 86_400_000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+/** Lista de datas de inicio a fim (inclusive), em ordem crescente. */
+export function diasEntre(inicio: string, fim: string): string[] {
+  const dias: string[] = [];
+  for (let d = inicio; d <= fim; d = somarDias(d, 1)) dias.push(d);
+  return dias;
+}
+
+/** 'YYYY-MM-DD' -> 'DD/MM/YYYY' */
+export function formatarDataBr(dataIso: string | null | undefined): string {
+  if (!dataIso) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dataIso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : dataIso;
+}
+
+/** Início do dia civil de São Paulo como ISO UTC (SP é UTC-3 fixo desde 2019). */
+export function inicioDoDiaBrasilIso(instante: Date = new Date()): string {
+  return `${dataBrasil(instante)}T03:00:00.000Z`;
+}

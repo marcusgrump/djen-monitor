@@ -1,0 +1,19 @@
+{
+  // Apenas para checagem de tipos no Node: npx tsc --noEmit -p supabase/functions/tsconfig.json
+  // (o Deno usa o deno.json de cada função e ignora este arquivo).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "types": []
+  },
+  "include": ["./**/*.ts"]
+}
