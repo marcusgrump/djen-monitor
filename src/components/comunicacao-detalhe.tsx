@@ -18,7 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery } from "@/hooks/use-query";
-import { TIPO_MONITOR_INFO } from "@/lib/constants";
+import { normalizadosDeMonitor, resumoFiltros } from "@/lib/filtros";
 import {
   formatarData,
   formatarDataHora,
@@ -29,19 +29,22 @@ import {
   urlSegura,
 } from "@/lib/format";
 import { mensagemErro, supabase } from "@/lib/supabase";
-import type { Comunicacao, Monitor } from "@/lib/types";
+import type { Comunicacao, FiltrosMonitor, Monitor } from "@/lib/types";
+
+const COLUNAS_MONITOR =
+  "id,nome,texto,sigla_tribunal,orgao_id,orgao_nome,meio,numero_processo,nome_parte,nome_advogado,numero_oab,uf_oab";
 
 type Detalhe = Comunicacao & {
   monitor_comunicacoes: {
     created_at: string;
-    monitores: Pick<Monitor, "id" | "nome" | "tipo" | "valor"> | null;
+    monitores: Pick<Monitor, "id" | "nome" | keyof FiltrosMonitor> | null;
   }[];
 };
 
 async function buscarDetalhe(id: number): Promise<Detalhe | null> {
   const { data, error } = await supabase()
     .from("comunicacoes")
-    .select("*, monitor_comunicacoes(created_at, monitores(id,nome,tipo,valor))")
+    .select(`*, monitor_comunicacoes(created_at, monitores(${COLUNAS_MONITOR}))`)
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -242,7 +245,7 @@ function Conteudo({ id, aoAlterar }: { id: number; aoAlterar?: () => void }) {
                   key={m!.id}
                   href={`/comunicacoes/?monitor=${m!.id}`}
                   className={buttonVariants({ variant: "secondary", size: "xs", className: "max-w-full" })}
-                  title={`${TIPO_MONITOR_INFO[m!.tipo]?.rotulo ?? m!.tipo}: ${m!.valor}`}
+                  title={resumoFiltros(normalizadosDeMonitor(m!))}
                 >
                   <span className="truncate">{m!.nome}</span>
                 </Link>

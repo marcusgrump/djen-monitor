@@ -7,7 +7,7 @@ export type RespostaSync =
   | { tipo: "em_andamento"; mensagem: string }
   | { tipo: "erro"; mensagem: string };
 
-async function lerCorpo(resp: unknown): Promise<Record<string, unknown> | null> {
+export async function lerCorpo(resp: unknown): Promise<Record<string, unknown> | null> {
   if (!(resp instanceof Response)) return null;
   try {
     const texto = await resp.clone().text();
@@ -23,7 +23,7 @@ async function lerCorpo(resp: unknown): Promise<Record<string, unknown> | null> 
   }
 }
 
-function textoDe(corpo: Record<string, unknown> | null, padrao: string) {
+export function textoDe(corpo: Record<string, unknown> | null, padrao: string) {
   const m = corpo?.erro ?? corpo?.mensagem ?? corpo?.error ?? corpo?.message;
   return typeof m === "string" && m.trim() ? m : padrao;
 }

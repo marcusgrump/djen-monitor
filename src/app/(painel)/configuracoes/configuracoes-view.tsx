@@ -25,6 +25,7 @@ import { formatarDataHora } from "@/lib/format";
 import { validarNovaSenha } from "@/lib/senha";
 import { mensagemErro, supabase } from "@/lib/supabase";
 import type { ConfiguracaoRow, Configuracoes } from "@/lib/types";
+import { GmailCard } from "./gmail-card";
 
 const PADRAO: Configuracoes = {
   emails_padrao: [],
@@ -69,6 +70,7 @@ export function ConfiguracoesView() {
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-6 lg:col-span-3">
+          <GmailCard emailsPadrao={dados?.config.emails_padrao ?? []} />
           {carregandoInicial ? (
             <Card>
               <CardContent className="space-y-4">

@@ -6,11 +6,13 @@ import {
   CalendarDaysIcon,
   CalendarIcon,
   MailWarningIcon,
+  MailXIcon,
   RadarIcon,
   RefreshCwIcon,
 } from "lucide-react";
 import { EstadoVazio, ErroCarregamento, PageHeader, StatusBadge } from "@/components/comum";
 import { TabelaExecucoes } from "@/components/execucoes";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,9 +24,11 @@ import {
   formatarDataHora,
   formatarNumero,
   hojeISO,
+  pluralizar,
   processoExibicao,
   tempoRelativo,
 } from "@/lib/format";
+import { statusGmail } from "@/lib/gmail";
 import { erroDaResposta, supabase } from "@/lib/supabase";
 import type { Comunicacao, SyncExecucao } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -86,6 +90,25 @@ async function carregarPainel(): Promise<Painel> {
   };
 }
 
+/**
+ * Nº de comunicações ainda não notificadas quando o Gmail não está configurado pelo painel;
+ * null quando não há o que avisar (ou quando não dá para saber — ex.: RPC ainda não instalada).
+ */
+async function carregarAvisoGmail(): Promise<number | null> {
+  try {
+    const status = await statusGmail();
+    if (status.senha_configurada) return null;
+    const r = await supabase()
+      .from("comunicacoes")
+      .select("id", { count: "exact", head: true })
+      .is("notificada_em", null);
+    if (r.error) return null;
+    return r.count ? r.count : null;
+  } catch {
+    return null;
+  }
+}
+
 function Metrica({
   titulo,
   valor,
@@ -133,6 +156,7 @@ export function VisaoGeral() {
   const { dados, erro, carregandoInicial, carregando, recarregar } = useQuery("painel", carregarPainel);
   const { executando, executar } = useSincronizar(recarregar);
   const agora = useAgora();
+  const avisoGmail = useQuery("painel:aviso-gmail", carregarAvisoGmail);
 
   const ultima = dados?.execucoes[0];
   const emAndamento = ultima?.status === "executando";
@@ -157,6 +181,24 @@ export function VisaoGeral() {
       />
 
       {erro && <ErroCarregamento mensagem={erro} aoTentarNovamente={recarregar} />}
+
+      {!!avisoGmail.dados && (
+        <Alert className="border-amber-500/50">
+          <MailXIcon className="text-amber-600 dark:text-amber-400" />
+          <AlertTitle>
+            Há {pluralizar(avisoGmail.dados, "comunicação aguardando envio", "comunicações aguardando envio")}
+          </AlertTitle>
+          <AlertDescription>
+            <p>
+              O e-mail de envio não está configurado.{" "}
+              <Link href="/configuracoes/" className="font-medium text-foreground underline underline-offset-2">
+                Configure o Gmail em Configurações
+              </Link>{" "}
+              para receber os avisos.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Metrica

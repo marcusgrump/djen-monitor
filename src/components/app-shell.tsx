@@ -14,6 +14,7 @@ import {
   MonitorIcon,
   MoonIcon,
   RadarIcon,
+  SearchIcon,
   SettingsIcon,
   SunIcon,
 } from "lucide-react";
@@ -37,6 +38,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 
 const NAV = [
   { href: "/", rotulo: "Visão geral", icone: LayoutDashboardIcon },
+  { href: "/pesquisar/", rotulo: "Pesquisar", icone: SearchIcon },
   { href: "/comunicacoes/", rotulo: "Comunicações", icone: InboxIcon },
   { href: "/monitores/", rotulo: "Monitores", icone: RadarIcon },
   { href: "/execucoes/", rotulo: "Execuções", icone: ActivityIcon },

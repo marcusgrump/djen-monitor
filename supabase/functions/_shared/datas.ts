@@ -48,6 +48,21 @@ export function formatarDataBr(dataIso: string | null | undefined): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : dataIso;
 }
 
+const fmtDataHora = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: FUSO_BRASIL,
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+/** 'DD/MM/YYYY HH:MM' do instante, no horário de Brasília. */
+export function dataHoraBrasil(instante: Date = new Date()): string {
+  return fmtDataHora.format(instante).replace(',', '');
+}
+
 /** Início do dia civil de São Paulo como ISO UTC (SP é UTC-3 fixo desde 2019). */
 export function inicioDoDiaBrasilIso(instante: Date = new Date()): string {
   return `${dataBrasil(instante)}T03:00:00.000Z`;

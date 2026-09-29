@@ -4,18 +4,30 @@
 //   - pg_cron (a cada 30 min): header `x-cron-secret: <CRON_SECRET>`, body {"origem":"cron"}
 //   - painel: supabase.functions.invoke('djen-sync', { body: {origem:'manual', monitorId?, dryRun?} })
 //     com o JWT do usuário logado (Authorization: Bearer ...).
+//   - painel, teste de e-mail: body {acao:'testar_email', destinatario?} (SOMENTE com JWT de
+//     usuário). Responde sempre 200 com {ok:true, destinatario, remetente, origem_credenciais}
+//     ou {ok:false, erro, dica, origem_credenciais}; não registra em sync_execucoes.
 // verify_jwt = false no config: a autorização é feita aqui.
 //
 // Deve rodar em sa-east-1 (IP brasileiro): o cron força com `x-region: sa-east-1` e
 // `?forceFunctionRegion=sa-east-1`; no painel use `region: FunctionRegion.SaEast1`.
 //
-// Segredos (supabase secrets set ...): CRON_SECRET, GMAIL_USER, GMAIL_APP_PASSWORD,
-// EMAIL_FROM_NAME (opcional), SYNC_ORCAMENTO_MS (opcional), DJEN_USER_AGENT (opcional).
+// E-mail: credenciais do Gmail salvas pelo painel (Vault, RPC djen_gmail_credenciais) têm
+// prioridade; na falta delas, os segredos GMAIL_USER, GMAIL_APP_PASSWORD, EMAIL_FROM_NAME.
+// Outros segredos (supabase secrets set ...): CRON_SECRET, SYNC_ORCAMENTO_MS (opcional),
+// DJEN_USER_AGENT (opcional).
 // SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY e SB_REGION são injetadas pela plataforma.
 
 import { createClient } from '@supabase/supabase-js';
+import { dataHoraBrasil } from '../_shared/datas.ts';
 import { ClienteDjen, descreverErro, USER_AGENT_PADRAO } from '../_shared/djen-client.ts';
-import { transporteGmailDoAmbiente } from '../_shared/email-gmail.ts';
+import { montarEmailTeste } from '../_shared/email.ts';
+import {
+  DICA_SEM_CREDENCIAIS,
+  dicaErroEmail,
+  resolverCredenciaisGmail,
+  TransporteGmailSmtp,
+} from '../_shared/email-gmail.ts';
 import { RepositorioSupabase } from '../_shared/repositorio-supabase.ts';
 import { executarSincronizacao } from '../_shared/sync.ts';
 import type { OrigemSync } from '../_shared/tipos.ts';
@@ -26,6 +38,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+const EMAIL_VALIDO = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/;
 const JANELA_CONCORRENCIA_MS = 10 * 60_000;
 // Limite de parede da Edge Function: 150 s (Free) / 400 s (pagos). Reserva ~40 s p/ banco + e-mail.
 const ORCAMENTO_PADRAO_MS = 110_000;
@@ -36,6 +49,53 @@ function json(corpo: unknown, status = 200): Response {
     status,
     headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' },
   });
+}
+
+/** Envia um e-mail curto de teste. Nunca lança: o resultado vai no corpo (sempre HTTP 200). */
+async function testarEmail(
+  credenciais: Awaited<ReturnType<typeof resolverCredenciaisGmail>>,
+  destinatarioBruto: unknown,
+): Promise<Record<string, unknown>> {
+  if (!credenciais) {
+    return { ok: false, erro: 'E-mail não configurado', dica: DICA_SEM_CREDENCIAIS, origem_credenciais: null };
+  }
+  const remetente = credenciais.usuario;
+  const destinatario =
+    typeof destinatarioBruto === 'string' && destinatarioBruto.trim() !== ''
+      ? destinatarioBruto.trim().toLowerCase()
+      : remetente.toLowerCase();
+  if (!EMAIL_VALIDO.test(destinatario)) {
+    return {
+      ok: false,
+      erro: `Destinatário inválido: ${destinatario}`,
+      dica: 'Informe um endereço de e-mail completo (ex.: nome@gmail.com).',
+      remetente,
+      origem_credenciais: credenciais.origem,
+    };
+  }
+  const transporte = new TransporteGmailSmtp(credenciais);
+  try {
+    const conteudo = montarEmailTeste({ remetente, quando: dataHoraBrasil() });
+    await transporte.enviar({ para: [destinatario], ...conteudo });
+    return { ok: true, destinatario, remetente, origem_credenciais: credenciais.origem };
+  } catch (e) {
+    const erro = descreverErro(e);
+    console.log(`[email] teste de envio falhou: ${erro}`);
+    return {
+      ok: false,
+      erro,
+      dica: dicaErroEmail(erro),
+      destinatario,
+      remetente,
+      origem_credenciais: credenciais.origem,
+    };
+  } finally {
+    try {
+      transporte.fechar();
+    } catch {
+      /* ignora */
+    }
+  }
 }
 
 function iguaisTempoConstante(a: string, b: string): boolean {
@@ -83,12 +143,34 @@ Deno.serve(async (req: Request) => {
   if (!autorizadoPor) return json({ erro: 'Não autorizado' }, 401);
 
   // ------------------------------------------------------------------ corpo
-  let corpo: { origem?: unknown; monitorId?: unknown; dryRun?: unknown } = {};
+  let corpo: { origem?: unknown; monitorId?: unknown; dryRun?: unknown; acao?: unknown; destinatario?: unknown } = {};
   try {
     const bruto = await req.text();
     if (bruto.trim()) corpo = JSON.parse(bruto);
   } catch {
     return json({ erro: 'Corpo JSON inválido' }, 400);
+  }
+  if (!corpo || typeof corpo !== 'object') corpo = {};
+
+  // Credenciais do Gmail: painel (Vault) primeiro, depois Secrets.
+  const obterCredenciais = () =>
+    resolverCredenciaisGmail(
+      async () => {
+        const { data, error } = await admin.rpc('djen_gmail_credenciais');
+        if (error) throw new Error(error.message);
+        return data;
+      },
+      env,
+      (m) => console.log(`[email] ${m}`),
+    );
+
+  // ------------------------------------------------------- ação: testar e-mail
+  if (corpo.acao !== undefined && corpo.acao !== null) {
+    if (corpo.acao !== 'testar_email') return json({ erro: `Ação desconhecida: ${String(corpo.acao)}` }, 400);
+    if (autorizadoPor !== 'usuario') {
+      return json({ erro: 'A ação testar_email exige um usuário autenticado (JWT)' }, 403);
+    }
+    return json(await testarEmail(await obterCredenciais(), corpo.destinatario));
   }
   const origem: OrigemSync =
     corpo.origem === 'cron' || corpo.origem === 'manual' ? corpo.origem : autorizadoPor === 'cron' ? 'cron' : 'manual';
@@ -128,10 +210,12 @@ Deno.serve(async (req: Request) => {
   });
 
   try {
+    const credenciais = await obterCredenciais();
     const resumo = await executarSincronizacao({
       repo,
       cliente,
-      transporte: transporteGmailDoAmbiente(env),
+      transporte: credenciais ? new TransporteGmailSmtp(credenciais) : null,
+      origemCredenciais: credenciais?.origem ?? null,
       origem,
       monitorId,
       dryRun,

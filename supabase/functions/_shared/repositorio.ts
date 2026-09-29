@@ -10,6 +10,7 @@ import type {
   ExecucaoResumida,
   FinalizacaoExecucao,
   Monitor,
+  MonitorVinculado,
   NovaComunicacao,
   OrigemSync,
   StatusSync,
@@ -182,9 +183,23 @@ export class RepositorioMemoria implements Repositorio {
       .slice(0, limite)
       .map((c) => {
         const mids = this.vinculos.filter((v) => v.comunicacao_id === c.id).map((v) => v.monitor_id);
-        const monitores = this.monitores
+        const monitores: MonitorVinculado[] = this.monitores
           .filter((m) => mids.includes(m.id))
-          .map((m) => ({ id: m.id, nome: m.nome, emails: m.emails }));
+          .map((m) => ({
+            id: m.id,
+            nome: m.nome,
+            emails: m.emails,
+            texto: m.texto,
+            sigla_tribunal: m.sigla_tribunal,
+            orgao_id: m.orgao_id,
+            orgao_nome: m.orgao_nome,
+            meio: m.meio,
+            numero_processo: m.numero_processo,
+            nome_parte: m.nome_parte,
+            nome_advogado: m.nome_advogado,
+            numero_oab: m.numero_oab,
+            uf_oab: m.uf_oab,
+          }));
         return { ...c, monitores };
       });
     return Promise.resolve(pend);

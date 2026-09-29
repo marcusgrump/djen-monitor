@@ -12,25 +12,18 @@
 // Portável: usa apenas fetch/AbortSignal/URLSearchParams (Deno e Node >= 18).
 
 import { diasEntre, somarDias } from './datas.ts';
-import { somenteDigitos } from './texto.ts';
-import type { ItemDjen, Monitor, RespostaDjen } from './tipos.ts';
+import { parametrosDoMonitor } from './mapeamento.ts';
+import type { FiltrosMonitor, ItemDjen, Monitor, ParametrosConsulta, RespostaDjen } from './tipos.ts';
+
+// Reexportados por compatibilidade (a conversão monitor → parâmetros fica em mapeamento.ts).
+export { parametrosDoMonitor };
+export type { ParametrosConsulta };
 
 export const DJEN_BASE_URL = 'https://comunicaapi.pje.jus.br';
 export const DJEN_LIMITE_RESULTADOS = 10_000;
 export const DJEN_ITENS_POR_PAGINA = 100;
 export const USER_AGENT_PADRAO =
   'DJEN-Monitor/1.0 (monitoramento automatizado de comunicacoes processuais; baixo volume)';
-
-export interface ParametrosConsulta {
-  numeroOab?: string;
-  ufOab?: string;
-  nomeAdvogado?: string;
-  nomeParte?: string;
-  numeroProcesso?: string;
-  texto?: string;
-  siglaTribunal?: string;
-  meio?: 'D' | 'E';
-}
 
 export interface OpcoesCliente {
   baseUrl?: string;
@@ -333,9 +326,12 @@ export class ClienteDjen {
     return r;
   }
 
-  /** Busca as comunicações de um monitor no intervalo [hoje - dias_retroativos, hoje]. */
+  /**
+   * Busca as comunicações de um monitor no intervalo [hoje - dias_retroativos, hoje],
+   * com todos os filtros preenchidos do monitor na mesma consulta.
+   */
   async buscarMonitor(
-    monitor: Pick<Monitor, 'tipo' | 'valor' | 'uf_oab' | 'sigla_tribunal' | 'dias_retroativos'>,
+    monitor: Partial<FiltrosMonitor> & Pick<Monitor, 'dias_retroativos'>,
     hoje: string,
   ): Promise<ResultadoBusca> {
     const { inicio, fim } = intervaloDoMonitor(monitor.dias_retroativos, hoje);
@@ -361,46 +357,6 @@ export class ClienteDjen {
 export function intervaloDoMonitor(diasRetroativos: number, hoje: string): { inicio: string; fim: string } {
   const dias = Math.max(0, Math.min(30, Math.floor(Number(diasRetroativos) || 0)));
   return { inicio: somarDias(hoje, -dias), fim: hoje };
-}
-
-/** Converte o monitor nos parâmetros de consulta da API. Lança Error se inválido. */
-export function parametrosDoMonitor(
-  m: Pick<Monitor, 'tipo' | 'valor' | 'uf_oab' | 'sigla_tribunal'>,
-): ParametrosConsulta {
-  const valor = (m.valor ?? '').trim().replace(/\s+/g, ' ');
-  if (!valor) throw new Error('Monitor sem valor de busca');
-  const p: ParametrosConsulta = {};
-  switch (m.tipo) {
-    case 'oab': {
-      const numero = valor.replace(/[^0-9a-z]/gi, '').toUpperCase().replace(/^0+(?=\d)/, '');
-      const uf = (m.uf_oab ?? '').trim().toUpperCase();
-      if (!numero) throw new Error('Número de OAB inválido');
-      if (!/^[A-Z]{2}$/.test(uf)) throw new Error('UF da OAB inválida ou ausente');
-      p.numeroOab = numero;
-      p.ufOab = uf;
-      break;
-    }
-    case 'advogado':
-      p.nomeAdvogado = valor;
-      break;
-    case 'parte':
-      p.nomeParte = valor;
-      break;
-    case 'processo': {
-      const digitos = somenteDigitos(valor);
-      if (!digitos) throw new Error('Número de processo inválido');
-      p.numeroProcesso = digitos;
-      break;
-    }
-    case 'texto':
-      p.texto = valor;
-      break;
-    default:
-      throw new Error(`Tipo de monitor desconhecido: ${String((m as { tipo: unknown }).tipo)}`);
-  }
-  const sigla = (m.sigla_tribunal ?? '').trim().toUpperCase();
-  if (sigla) p.siglaTribunal = sigla;
-  return p;
 }
 
 function adicionar(acc: Map<number, ItemDjen>, itens: ItemDjen[]): void {

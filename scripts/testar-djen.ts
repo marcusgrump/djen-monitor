@@ -1,15 +1,30 @@
 // Teste local do motor de sincronização contra a API REAL do DJEN.
 // Usa o repositório EM MEMÓRIA (nada vai para o banco) e grava o e-mail em arquivo.
 //
+// Os filtros são os mesmos do formulário oficial (comunica.pje.jus.br): todos opcionais
+// e combináveis (vão juntos, em AND, na mesma consulta). Pelo menos um de --texto,
+// --tribunal, --parte, --advogado, --oab ou --processo é obrigatório.
+//
 //   npm run djen:teste -- --oab 123456 --uf SP
 //   npm run djen:teste -- --processo 5033683-97.2024.8.13.0701
 //   npm run djen:teste -- --tribunal TJSP --texto "fulano de tal" --dias 1
-//   npm run djen:teste -- --parte "EMPRESA X" --advogado "NOME" (um tipo por execução)
+//   npm run djen:teste -- --tribunal TJRJ --oab 146444 --uf RJ --meio D
+//   npm run djen:teste -- --tribunal TJRJ --orgao 12345 --orgao-nome "3ª Vara Cível" --parte "EMPRESA X"
+//
+// Filtros:
+//   --texto "..."      teor da comunicação (mín. 5 caracteres)
+//   --tribunal SIGLA   instituição (siglaTribunal)
+//   --orgao ID         órgão (orgaoId; exige --tribunal); --orgao-nome "..." só para exibição
+//   --meio D|E         D = Diário Eletrônico, E = Edital
+//   --processo N       nº do processo (com ou sem máscara)
+//   --parte "nome"     nome da parte (mín. 4 caracteres)
+//   --advogado "nome"  nome do advogado (mín. 4 caracteres)
+//   --oab N            nº da OAB
+//   --uf UF            UF da OAB (exige --oab)
 //
 // Opções:
 //   --dias N        dias retroativos (0..30, padrão 3)
 //   --hoje AAAA-MM-DD  data de referência (padrão: hoje em São Paulo)
-//   --tribunal SIGLA   filtro opcional por tribunal
 //   --prazo S       orçamento de tempo da busca em segundos (padrão 110)
 //   --max-email N   comunicações por e-mail (padrão 20)
 //   --max-emails N  e-mails por execução (padrão 8; o excedente fica pendente)
@@ -23,12 +38,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { dataBrasil } from '../supabase/functions/_shared/datas.ts';
-import { ClienteDjen, parametrosDoMonitor } from '../supabase/functions/_shared/djen-client.ts';
+import { ClienteDjen } from '../supabase/functions/_shared/djen-client.ts';
 import type { MensagemEmail, TransporteEmail } from '../supabase/functions/_shared/email.ts';
 import { transporteGmailDoAmbiente } from '../supabase/functions/_shared/email-gmail.ts';
+import { parametrosDoMonitor, resumoFiltros } from '../supabase/functions/_shared/mapeamento.ts';
 import { RepositorioMemoria } from '../supabase/functions/_shared/repositorio.ts';
 import { executarSincronizacao } from '../supabase/functions/_shared/sync.ts';
-import type { Monitor, TipoMonitor } from '../supabase/functions/_shared/tipos.ts';
+import type { FiltrosMonitor, MeioComunicacao, Monitor } from '../supabase/functions/_shared/tipos.ts';
 
 // ------------------------------------------------------------------ argumentos
 function lerArgs(argv: string[]): Record<string, string | true> {
@@ -49,11 +65,28 @@ function lerArgs(argv: string[]): Record<string, string | true> {
 const args = lerArgs(process.argv.slice(2));
 const str = (k: string) => (typeof args[k] === 'string' ? (args[k] as string) : undefined);
 
-const TIPOS: TipoMonitor[] = ['oab', 'processo', 'advogado', 'parte', 'texto'];
-const tipo = TIPOS.find((t) => str(t) !== undefined);
-if (!tipo) {
+const orgaoBruto = str('orgao');
+const filtros: FiltrosMonitor = {
+  texto: str('texto') ?? null,
+  sigla_tribunal: str('tribunal') ?? null,
+  orgao_id: orgaoBruto !== undefined ? Number(orgaoBruto) : null,
+  orgao_nome: str('orgao-nome') ?? null,
+  meio: (str('meio')?.toUpperCase() as MeioComunicacao | undefined) ?? null,
+  numero_processo: str('processo') ?? null,
+  nome_parte: str('parte') ?? null,
+  nome_advogado: str('advogado') ?? null,
+  numero_oab: str('oab') ?? null,
+  uf_oab: str('uf') ?? null,
+};
+
+let parametros: ReturnType<typeof parametrosDoMonitor>;
+try {
+  parametros = parametrosDoMonitor(filtros);
+} catch (e) {
+  console.error(`Filtros inválidos: ${(e as Error).message}`);
   console.error(
-    'Informe um critério: --oab N --uf UF | --processo N | --advogado "nome" | --parte "nome" | --texto "..." [--tribunal SIGLA] [--dias N]',
+    'Uso: --oab N [--uf UF] | --processo N | --advogado "nome" | --parte "nome" | --texto "..." | --tribunal SIGLA' +
+      ' [--orgao ID] [--meio D|E] [--dias N] (os filtros se combinam)',
   );
   process.exit(2);
 }
@@ -65,11 +98,8 @@ const para = (str('para') ?? 'teste@example.com').split(',').map((s) => s.trim()
 
 const monitor: Monitor = {
   id: 1,
-  nome: `Teste ${tipo}: ${str(tipo)}${str('uf') ? '/' + str('uf') : ''}${str('tribunal') ? ' @' + str('tribunal') : ''}`,
-  tipo,
-  valor: str(tipo)!,
-  uf_oab: str('uf') ?? null,
-  sigla_tribunal: str('tribunal') ?? null,
+  nome: `Teste: ${resumoFiltros(filtros)}`,
+  ...filtros,
   emails: null,
   ativo: true,
   dias_retroativos: Number(str('dias') ?? 3),
@@ -127,7 +157,8 @@ async function main() {
   });
 
   console.log(`Monitor: ${monitor.nome} | dias_retroativos=${monitor.dias_retroativos} | hoje=${hoje}`);
-  console.log(`Parâmetros API: ${JSON.stringify(parametrosDoMonitor(monitor))}`);
+  console.log(`Filtros: ${resumoFiltros(monitor)}`);
+  console.log(`Parâmetros API: ${JSON.stringify(parametros)}`);
 
   const rodadas = args['repetir'] === true ? 2 : 1;
   const resumos = [];

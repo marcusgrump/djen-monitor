@@ -1,45 +1,15 @@
-import type { StatusExecucao, TipoMonitor } from "./types";
+import type { MeioDjen, StatusExecucao } from "./types";
 
 export const UFS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA",
   "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
 ] as const;
 
-export const TIPO_MONITOR_INFO: Record<
-  TipoMonitor,
-  { rotulo: string; rotuloValor: string; placeholder: string; ajuda: string }
-> = {
-  oab: {
-    rotulo: "OAB",
-    rotuloValor: "Número da OAB",
-    placeholder: "123456",
-    ajuda: "Somente o número da inscrição; a UF é escolhida ao lado.",
-  },
-  advogado: {
-    rotulo: "Advogado",
-    rotuloValor: "Nome do advogado",
-    placeholder: "Maria da Silva",
-    ajuda: "Nome completo, como aparece nas publicações.",
-  },
-  parte: {
-    rotulo: "Parte",
-    rotuloValor: "Nome da parte",
-    placeholder: "Empresa Exemplo Ltda",
-    ajuda: "Nome da pessoa física ou jurídica.",
-  },
-  processo: {
-    rotulo: "Processo",
-    rotuloValor: "Número do processo (CNJ)",
-    placeholder: "0000000-00.0000.0.00.0000",
-    ajuda: "Numeração única CNJ, com ou sem pontuação (20 dígitos).",
-  },
-  texto: {
-    rotulo: "Texto",
-    rotuloValor: "Texto a procurar",
-    placeholder: "termo de busca",
-    ajuda: "Busca livre no conteúdo das comunicações.",
-  },
-};
+/** Rótulos do filtro "Meio" do formulário oficial de pesquisa. */
+export const MEIOS_DJEN: { value: MeioDjen; label: string; curto: string }[] = [
+  { value: "D", label: "Diário Eletrônico", curto: "Diário" },
+  { value: "E", label: "Edital", curto: "Edital" },
+];
 
 export const STATUS_EXECUCAO_INFO: Record<StatusExecucao, { rotulo: string; classe: string }> = {
   executando: {

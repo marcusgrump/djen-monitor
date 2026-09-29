@@ -15,36 +15,36 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { TIPO_MONITOR_INFO, UFS } from "@/lib/constants";
 import { mensagemErro, supabase } from "@/lib/supabase";
-import { TIPOS_MONITOR, type Monitor, type TipoMonitor } from "@/lib/types";
+import { FiltrosDjenForm } from "@/components/filtros-djen";
+import type { Monitor } from "@/lib/types";
 import { FORM_VAZIO, formDeMonitor, validarMonitor, type ErrosForm, type MonitorForm } from "./monitor-schema";
-
-const ITENS_TIPO = TIPOS_MONITOR.map((t) => ({ value: t, label: TIPO_MONITOR_INFO[t].rotulo }));
-const ITENS_UF = UFS.map((u) => ({ value: u, label: u }));
 
 export function MonitorFormDialog({
   aberto,
   aoMudarAberto,
   monitor,
+  inicial,
   versao,
   aoSalvar,
 }: {
   aberto: boolean;
   aoMudarAberto: (v: boolean) => void;
   monitor: Monitor | null;
+  /** Formulário inicial para um monitor novo (ex.: filtros vindos da página Pesquisar). */
+  inicial?: MonitorForm | null;
   /** Muda a cada abertura para reiniciar o formulário. */
   versao: number;
   aoSalvar: () => void;
 }) {
   return (
     <Dialog open={aberto} onOpenChange={aoMudarAberto}>
-      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl">
         <FormInterno
           key={versao}
           monitor={monitor}
+          inicial={inicial ?? null}
           aoCancelar={() => aoMudarAberto(false)}
           aoSalvar={() => {
             aoMudarAberto(false);
@@ -88,23 +88,25 @@ function Campo({
 
 function FormInterno({
   monitor,
+  inicial,
   aoCancelar,
   aoSalvar,
 }: {
   monitor: Monitor | null;
+  inicial: MonitorForm | null;
   aoCancelar: () => void;
   aoSalvar: () => void;
 }) {
-  const [form, setForm] = useState<MonitorForm>(() => (monitor ? formDeMonitor(monitor) : FORM_VAZIO));
+  const [form, setForm] = useState<MonitorForm>(() =>
+    monitor ? formDeMonitor(monitor) : (inicial ?? FORM_VAZIO),
+  );
   const [erros, setErros] = useState<ErrosForm>({});
   const [salvando, setSalvando] = useState(false);
 
   const set = <K extends keyof MonitorForm>(k: K, v: MonitorForm[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
-    if (erros[k]) setErros((e) => ({ ...e, [k]: undefined }));
+    if (k !== "filtros" && erros[k as keyof Omit<ErrosForm, "filtros">]) setErros((e) => ({ ...e, [k]: undefined }));
   };
-
-  const info = TIPO_MONITOR_INFO[form.tipo];
 
   const salvar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,93 +136,56 @@ function FormInterno({
       <DialogHeader>
         <DialogTitle>{monitor ? "Editar monitor" : "Novo monitor"}</DialogTitle>
         <DialogDescription>
-          Defina o que procurar nas comunicações do DJEN e quem deve ser avisado.
+          Use os mesmos filtros da pesquisa oficial do DJEN — sozinhos ou combinados. A cada
+          sincronização o período pesquisado é de hoje até os dias retroativos.
         </DialogDescription>
       </DialogHeader>
 
-      <Campo id="m-nome" rotulo="Nome" erro={erros.nome}>
+      <Campo id="m-nome" rotulo="Nome do monitor" erro={erros.nome}>
         <Input
           id="m-nome"
           value={form.nome}
           onChange={(e) => set("nome", e.target.value)}
           placeholder="Ex.: Minha OAB, Cliente X"
           aria-invalid={erros.nome ? true : undefined}
+          maxLength={120}
           autoFocus
         />
       </Campo>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Campo rotulo="Tipo" erro={erros.tipo}>
-          <Select
-            items={ITENS_TIPO}
-            value={form.tipo}
-            onValueChange={(v) => {
-              if (v) {
-                set("tipo", v as TipoMonitor);
-                setErros((e) => ({ ...e, valor: undefined, uf_oab: undefined }));
-              }
-            }}
-          >
-            <SelectTrigger className="w-full" aria-label="Tipo de monitor">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ITENS_TIPO.map((i) => (
-                <SelectItem key={i.value} value={i.value}>
-                  {i.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Campo>
-        <Campo
-          id="m-tribunal"
-          rotulo="Tribunal (opcional)"
-          erro={erros.sigla_tribunal}
-          ajuda="Vazio = todos os tribunais."
-        >
-          <Input
-            id="m-tribunal"
-            value={form.sigla_tribunal}
-            onChange={(e) => set("sigla_tribunal", e.target.value.toUpperCase().replace(/\s+/g, ""))}
-            placeholder="Ex.: TJSP"
-            aria-invalid={erros.sigla_tribunal ? true : undefined}
-          />
-        </Campo>
-      </div>
-
-      <div className={form.tipo === "oab" ? "grid gap-4 sm:grid-cols-[1fr_7rem]" : "grid gap-4"}>
-        <Campo id="m-valor" rotulo={info.rotuloValor} erro={erros.valor} ajuda={info.ajuda}>
-          <Input
-            id="m-valor"
-            value={form.valor}
-            onChange={(e) => set("valor", e.target.value)}
-            placeholder={info.placeholder}
-            inputMode={form.tipo === "oab" || form.tipo === "processo" ? "numeric" : undefined}
-            aria-invalid={erros.valor ? true : undefined}
-          />
-        </Campo>
-        {form.tipo === "oab" && (
-          <Campo rotulo="UF da OAB" erro={erros.uf_oab}>
-            <Select
-              items={ITENS_UF}
-              value={form.uf_oab || null}
-              onValueChange={(v) => set("uf_oab", (v as string | null) ?? "")}
+      <fieldset className="grid gap-3 rounded-lg border p-3">
+        <legend className="px-1 text-sm font-medium">Filtros</legend>
+        <FiltrosDjenForm
+          modo="monitor"
+          valor={form.filtros}
+          aoMudar={(v) => set("filtros", v)}
+          erros={erros.filtros}
+          aoLimparErro={(campo) =>
+            setErros((e) => (e.filtros ? { ...e, filtros: { ...e.filtros, [campo]: undefined } } : e))
+          }
+          periodo={
+            <Campo
+              id="m-dias"
+              rotulo="Dias retroativos"
+              erro={erros.dias_retroativos}
+              ajuda="Período de cada sincronização: de hoje menos N dias até hoje (0 a 30)."
             >
-              <SelectTrigger className="w-full" aria-label="UF da OAB" aria-invalid={erros.uf_oab ? true : undefined}>
-                <SelectValue placeholder="UF" />
-              </SelectTrigger>
-              <SelectContent>
-                {ITENS_UF.map((i) => (
-                  <SelectItem key={i.value} value={i.value}>
-                    {i.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Campo>
-        )}
-      </div>
+              <Input
+                id="m-dias"
+                type="number"
+                min={0}
+                max={30}
+                step={1}
+                inputMode="numeric"
+                className="max-w-32"
+                value={form.dias_retroativos}
+                onChange={(e) => set("dias_retroativos", e.target.value)}
+                aria-invalid={erros.dias_retroativos ? true : undefined}
+              />
+            </Campo>
+          }
+        />
+      </fieldset>
 
       <Campo
         id="m-emails"
@@ -236,33 +201,13 @@ function FormInterno({
         />
       </Campo>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Campo
-          id="m-dias"
-          rotulo="Dias retroativos"
-          erro={erros.dias_retroativos}
-          ajuda="Quantos dias para trás buscar (0 a 30)."
-        >
-          <Input
-            id="m-dias"
-            type="number"
-            min={0}
-            max={30}
-            step={1}
-            inputMode="numeric"
-            value={form.dias_retroativos}
-            onChange={(e) => set("dias_retroativos", e.target.value)}
-            aria-invalid={erros.dias_retroativos ? true : undefined}
-          />
-        </Campo>
-        <div>
-          <Label htmlFor="m-ativo" className="mb-1.5">
-            Situação
-          </Label>
-          <div className="flex h-8 items-center gap-2">
-            <Switch id="m-ativo" checked={form.ativo} onCheckedChange={(v) => set("ativo", v)} />
-            <span className="text-sm">{form.ativo ? "Ativo" : "Pausado"}</span>
-          </div>
+      <div>
+        <Label htmlFor="m-ativo" className="mb-1.5">
+          Ativo
+        </Label>
+        <div className="flex h-8 items-center gap-2">
+          <Switch id="m-ativo" checked={form.ativo} onCheckedChange={(v) => set("ativo", v)} />
+          <span className="text-sm">{form.ativo ? "Ativo — incluído nas sincronizações" : "Pausado"}</span>
         </div>
       </div>
 

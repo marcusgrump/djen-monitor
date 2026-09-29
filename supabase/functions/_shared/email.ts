@@ -3,8 +3,9 @@
 
 import { formatarDataBr } from './datas.ts';
 import { DJEN_BASE_URL } from './djen-client.ts';
+import { resumoFiltros } from './mapeamento.ts';
 import { escaparHtml, htmlParaTexto, trecho, urlValida } from './texto.ts';
-import type { ComunicacaoPendente } from './tipos.ts';
+import type { ComunicacaoPendente, MonitorVinculado } from './tipos.ts';
 
 // ---------------------------------------------------------------------------
 // Transporte (trocável: Gmail SMTP, arquivo local, API HTTP de terceiros...)
@@ -91,6 +92,20 @@ function normalizarCaixa(s: string | null | undefined): string {
   return /[a-z]/.test(s) ? s : s.toLocaleUpperCase('pt-BR');
 }
 
+/** "Nome do monitor — OAB 146444/RJ · TJRJ · Diário" (só o nome se os filtros não vierem). */
+export function descreverMonitor(m: MonitorVinculado): string {
+  const filtros = resumoFiltros(m);
+  const nome = (m.nome ?? '').trim();
+  if (filtros === 'sem filtros') return nome;
+  if (!nome) return filtros;
+  if (nome.toLowerCase().includes(filtros.toLowerCase())) return nome;
+  return `${nome} — ${filtros}`;
+}
+
+function monitoresDe(c: ComunicacaoPendente): string[] {
+  return [...new Set((c.monitores ?? []).map(descreverMonitor).filter(Boolean))];
+}
+
 function processoDe(c: ComunicacaoPendente): string {
   return c.numero_processo_mascara ?? c.numero_processo ?? 'Processo não informado';
 }
@@ -113,7 +128,7 @@ function cartaoHtml(c: ComunicacaoPendente): string {
   const resumo = trecho(htmlParaTexto(c.texto), TRECHO_MAX);
   const link = urlValida(c.link);
   const certidao = urlCertidao(c.hash);
-  const monitores = [...new Set((c.monitores ?? []).map((m) => m.nome))];
+  const monitores = monitoresDe(c);
 
   const badges = [c.sigla_tribunal, c.tipo_comunicacao, c.tipo_documento, c.meio === 'E' ? 'Edital' : null]
     .filter((b, i, arr): b is string => !!b && arr.indexOf(b) === i)
@@ -153,7 +168,7 @@ ${
 ${botoes ? `<div style="margin-top:8px;">${botoes}</div>` : ''}
 ${
   monitores.length
-    ? `<div style="margin-top:10px;color:#94a3b8;font-size:12px;">Encontrada pelo monitor: ${escaparHtml(monitores.join(', '))}</div>`
+    ? `<div style="margin-top:10px;color:#94a3b8;font-size:12px;">Encontrada pelo monitor: ${escaparHtml(monitores.join('; '))}</div>`
     : ''
 }
 </td></tr></table>
@@ -259,8 +274,8 @@ function montarTexto(lista: ComunicacaoPendente[], titulo: string, subtitulo: st
     if (link) l.push(`   Inteiro teor: ${link}`);
     const cert = urlCertidao(c.hash);
     if (cert) l.push(`   Certidão: ${cert}`);
-    const mons = [...new Set((c.monitores ?? []).map((m) => m.nome))];
-    if (mons.length) l.push(`   Monitor: ${mons.join(', ')}`);
+    const mons = monitoresDe(c);
+    if (mons.length) l.push(`   Monitor: ${mons.join('; ')}`);
     return l.join('\n');
   });
   return [
@@ -273,6 +288,22 @@ function montarTexto(lista: ComunicacaoPendente[], titulo: string, subtitulo: st
     'Mensagem automática do DJEN Monitor com base no Diário de Justiça Eletrônico Nacional (CNJ).',
     'Este e-mail é um resumo: confira sempre o inteiro teor e a certidão da comunicação.',
   ].join('\n');
+}
+
+/** E-mail curto de teste de envio (ação "testar_email" da função, disparada pelo painel). */
+export function montarEmailTeste(op: { remetente: string; quando: string }): {
+  assunto: string;
+  html: string;
+  texto: string;
+} {
+  const assunto = `[DJEN] Teste de envio — ${op.quando}`;
+  const msg = `Este é um e-mail de teste do DJEN Monitor, enviado em ${op.quando} (horário de Brasília) pela conta ${op.remetente}. Se você o recebeu, as notificações por e-mail estão funcionando.`;
+  const corpo = `<tr><td style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:18px;${FONTE}color:#334155;font-size:15px;line-height:1.5;">${escaparHtml(msg)}</td></tr>`;
+  return {
+    assunto,
+    html: envelopeHtml('Teste de envio', op.quando, corpo, msg),
+    texto: `DJEN Monitor — Teste de envio (${op.quando})\n\n${msg}\n`,
+  };
 }
 
 /** E-mail diário opcional quando não há comunicações novas (configuracoes.notificar_sem_novidades). */

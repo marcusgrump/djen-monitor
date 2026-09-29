@@ -1,18 +1,33 @@
-// Tipos espelhando supabase/migrations/20260928203046_schema.sql
-
-export const TIPOS_MONITOR = ["oab", "advogado", "parte", "processo", "texto"] as const;
-export type TipoMonitor = (typeof TIPOS_MONITOR)[number];
+// Tipos espelhando supabase/migrations/ (schema + 20260929180000_monitores_filtros.sql)
 
 export type StatusExecucao = "executando" | "sucesso" | "parcial" | "erro";
 export type OrigemExecucao = "cron" | "manual";
 
-export interface Monitor {
+/** Meio de divulgação: D = Diário Eletrônico, E = Edital. */
+export type MeioDjen = "D" | "E";
+
+/**
+ * Filtros de um monitor — as mesmas opções do formulário oficial de pesquisa
+ * (comunica.pje.jus.br). Todos opcionais e combináveis; null = não filtrar.
+ */
+export interface FiltrosMonitor {
+  texto: string | null;
+  sigla_tribunal: string | null;
+  orgao_id: number | null;
+  /** Apenas exibição (a API filtra por orgao_id). */
+  orgao_nome: string | null;
+  meio: MeioDjen | null;
+  /** Só dígitos. */
+  numero_processo: string | null;
+  nome_parte: string | null;
+  nome_advogado: string | null;
+  numero_oab: string | null;
+  uf_oab: string | null;
+}
+
+export interface Monitor extends FiltrosMonitor {
   id: number;
   nome: string;
-  tipo: TipoMonitor;
-  valor: string;
-  uf_oab: string | null;
-  sigla_tribunal: string | null;
   emails: string[] | null;
   ativo: boolean;
   dias_retroativos: number;

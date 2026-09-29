@@ -9,6 +9,7 @@ import type {
   ExecucaoResumida,
   FinalizacaoExecucao,
   Monitor,
+  MonitorVinculado,
   NovaComunicacao,
   OrigemSync,
 } from './tipos.ts';
@@ -30,8 +31,11 @@ function lotes<T>(lista: T[], tamanho: number): T[][] {
   return out;
 }
 
-const COLUNAS_MONITOR =
-  'id, nome, tipo, valor, uf_oab, sigla_tribunal, emails, ativo, dias_retroativos, ultima_sincronizacao, ultimo_erro';
+/** Colunas de filtro de public.monitores (as mesmas do formulário oficial do DJEN). */
+const COLUNAS_FILTROS =
+  'texto, sigla_tribunal, orgao_id, orgao_nome, meio, numero_processo, nome_parte, nome_advogado, numero_oab, uf_oab';
+
+const COLUNAS_MONITOR = `id, nome, ${COLUNAS_FILTROS}, emails, ativo, dias_retroativos, ultima_sincronizacao, ultimo_erro`;
 
 export class RepositorioSupabase implements Repositorio {
   constructor(private readonly db: SupabaseClient) {}
@@ -179,7 +183,7 @@ export class RepositorioSupabase implements Repositorio {
     const linhas = exigir(
       await this.db
         .from('comunicacoes')
-        .select('*, monitor_comunicacoes(monitores(id, nome, emails))')
+        .select(`*, monitor_comunicacoes(monitores(id, nome, emails, ${COLUNAS_FILTROS}))`)
         .is('notificada_em', null)
         .order('created_at', { ascending: true })
         .order('id', { ascending: true })
@@ -188,9 +192,7 @@ export class RepositorioSupabase implements Repositorio {
     ) as Array<Record<string, unknown>>;
 
     return linhas.map((l) => {
-      const vinculos = (l.monitor_comunicacoes ?? []) as Array<{
-        monitores: { id: number; nome: string; emails: string[] | null } | null;
-      }>;
+      const vinculos = (l.monitor_comunicacoes ?? []) as Array<{ monitores: MonitorVinculado | null }>;
       const resto: Record<string, unknown> = { ...l };
       delete resto.monitor_comunicacoes;
       return {

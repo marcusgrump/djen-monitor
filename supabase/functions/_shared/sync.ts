@@ -2,7 +2,8 @@
 //
 // 1. Registra a execução em sync_execucoes ('executando').
 // 2. Para cada monitor (os menos recentemente sincronizados primeiro): busca na API
-//    (uma consulta por intervalo, paginada), grava em comunicacoes (ON CONFLICT DO NOTHING),
+//    (uma consulta por intervalo com todos os filtros preenchidos do monitor, em AND,
+//    paginada), grava em comunicacoes (ON CONFLICT DO NOTHING),
 //    vincula em monitor_comunicacoes e atualiza ultima_sincronizacao / ultimo_erro.
 // 3. Envia e-mail com as comunicações notificada_em IS NULL, agrupadas pelo conjunto de
 //    destinatários, e só então marca notificada_em (nunca perde; cada comunicação pertence
@@ -12,7 +13,7 @@
 import { dataBrasil, horaBrasil, inicioDoDiaBrasilIso } from './datas.ts';
 import { type ClienteDjen, descreverErro } from './djen-client.ts';
 import { montarEmailComunicacoes, montarEmailSemNovidades, type TransporteEmail } from './email.ts';
-import { itemParaComunicacao } from './mapeamento.ts';
+import { itemParaComunicacao, resumoFiltros } from './mapeamento.ts';
 import type { Repositorio } from './repositorio.ts';
 import type { ComunicacaoPendente, Configuracoes, DetalheMonitor, Monitor, OrigemSync } from './tipos.ts';
 
@@ -22,6 +23,8 @@ export interface OpcoesSync {
   cliente: ClienteDjen;
   /** null = e-mail não configurado (as comunicações ficam pendentes). */
   transporte: TransporteEmail | null;
+  /** De onde vieram as credenciais do e-mail: 'painel' (Vault), 'secrets' (GMAIL_*) ou null. */
+  origemCredenciais?: 'painel' | 'secrets' | null;
   origem: OrigemSync;
   monitorId?: number;
   /** Não grava nada no banco e não envia e-mail; apenas consulta a API e relata. */
@@ -45,6 +48,8 @@ export interface OpcoesSync {
 
 export interface ResumoEmail {
   transporte: string | null;
+  /** 'painel' (Vault, via Configurações), 'secrets' (GMAIL_* da função) ou null (não configurado). */
+  origem_credenciais: 'painel' | 'secrets' | null;
   pendentes: number;
   enviados: number;
   notificadas: number;
@@ -88,6 +93,7 @@ export async function executarSincronizacao(op: OpcoesSync): Promise<ResumoSync>
   const avisos: string[] = [];
   const email: ResumoEmail = {
     transporte: op.transporte?.nome ?? null,
+    origem_credenciais: op.transporte ? (op.origemCredenciais ?? null) : null,
     pendentes: 0,
     enviados: 0,
     notificadas: 0,
@@ -131,9 +137,11 @@ export async function executarSincronizacao(op: OpcoesSync): Promise<ResumoSync>
 
     // ------------------------------------------------------------------ busca
     for (const m of monitores) {
+      const filtros = resumoFiltros(m);
       if (cliente.tempoRestante() < 3_000) {
         detalhes[String(m.id)] = {
           nome: m.nome,
+          filtros,
           requisicoes: 0,
           encontradas: 0,
           novas: 0,
@@ -147,6 +155,7 @@ export async function executarSincronizacao(op: OpcoesSync): Promise<ResumoSync>
       const r = await cliente.buscarMonitor(m, hoje);
       const det: DetalheMonitor = {
         nome: m.nome,
+        filtros,
         requisicoes: r.requisicoes,
         encontradas: r.itens.length,
         novas: 0,
@@ -158,7 +167,7 @@ export async function executarSincronizacao(op: OpcoesSync): Promise<ResumoSync>
       if (r.truncado) det.truncado = true;
       encontradas += r.itens.length;
       log(
-        `monitor #${m.id} "${m.nome}": ${r.itens.length} item(ns) (count=${r.totalInformado}), ${r.requisicoes} req.` +
+        `monitor #${m.id} "${m.nome}" [${filtros}]: ${r.itens.length} item(ns) (count=${r.totalInformado}), ${r.requisicoes} req.` +
           (r.parcial ? ' [PARCIAL]' : '') +
           (r.erro ? ` [ERRO: ${r.erro}]` : ''),
       );
@@ -184,7 +193,7 @@ export async function executarSincronizacao(op: OpcoesSync): Promise<ResumoSync>
             await repo.atualizarMonitor(m.id, {
               ultima_sincronizacao: agora().toISOString(),
               ultimo_erro: r.truncado
-                ? 'Aviso: mais de 10.000 comunicações em um único dia; algumas podem ter ficado de fora. Refine o monitor (ex.: filtre por tribunal).'
+                ? 'Aviso: mais de 10.000 comunicações em um único dia; algumas podem ter ficado de fora. Refine o monitor (ex.: combine com tribunal, órgão ou meio).'
                 : null,
             });
           }
@@ -289,7 +298,7 @@ async function notificar(
   if (!transporte) {
     if (pendentes.length) {
       avisos.push(
-        `E-mail não configurado (GMAIL_USER/GMAIL_APP_PASSWORD): ${pendentes.length} comunicação(ões) aguardando envio.`,
+        `E-mail não configurado (configure o Gmail em Configurações): ${pendentes.length} comunicação(ões) aguardando envio.`,
       );
     }
     return false;

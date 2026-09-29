@@ -57,7 +57,7 @@ export function htmlParaTexto(html: string | null | undefined): string {
   s = s.replace(/<\/t[dh]\s*>/gi, ' ');
   s = s.replace(/<[^>]+>/g, ' ');
   s = decodificarEntidades(s);
-  s = s.replace(/ /g, ' ');
+  s = s.replaceAll(String.fromCharCode(160), ' '); // NBSP -> espaço
   s = s.replace(/[ \t\f\v\r]+/g, ' ');
   s = s.replace(/ *\n */g, '\n');
   s = s.replace(/\n{2,}/g, '\n');

@@ -1,9 +1,9 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MonitoresView } from "./monitores-view";
+import { PesquisarView } from "./pesquisar-view";
 
-export const metadata: Metadata = { title: "Monitores" };
+export const metadata: Metadata = { title: "Pesquisar" };
 
 export default function Page() {
   return (
@@ -11,11 +11,11 @@ export default function Page() {
       fallback={
         <div className="space-y-4">
           <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-80 w-full" />
         </div>
       }
     >
-      <MonitoresView />
+      <PesquisarView />
     </Suspense>
   );
 }

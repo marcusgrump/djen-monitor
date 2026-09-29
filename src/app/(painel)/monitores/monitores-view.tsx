@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
@@ -11,11 +12,11 @@ import {
   PlusIcon,
   RadarIcon,
   RefreshCwIcon,
+  SearchIcon,
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { EstadoVazio, ErroCarregamento, PageHeader } from "@/components/comum";
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -46,12 +47,13 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgora, useQuery } from "@/hooks/use-query";
 import { useSincronizar } from "@/hooks/use-sincronizar";
-import { TIPO_MONITOR_INFO } from "@/lib/constants";
-import { formatarDataHora, formatarNumero, mascararProcesso, tempoRelativo } from "@/lib/format";
+import { filtrosDeQuery, filtrosParaQuery, normalizadosDeMonitor, partesResumo } from "@/lib/filtros";
+import { formatarDataHora, formatarNumero, hojeISO, tempoRelativo } from "@/lib/format";
 import { mensagemErro, supabase } from "@/lib/supabase";
 import type { Monitor } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { MonitorFormDialog } from "./monitor-form";
+import { formDeFiltros, type MonitorForm } from "./monitor-schema";
 
 type MonitorComContagem = Monitor & { monitor_comunicacoes: { count: number }[] };
 
@@ -65,18 +67,33 @@ async function buscarMonitores() {
   return (data ?? []) as MonitorComContagem[];
 }
 
-function valorExibicao(m: Monitor) {
-  if (m.tipo === "oab") return `${m.valor}/${m.uf_oab ?? "?"}`;
-  if (m.tipo === "processo") return mascararProcesso(m.valor);
-  return m.valor;
+/** Link para a página Pesquisar com os filtros do monitor e o período das sincronizações. */
+export function linkTestarNaPesquisa(m: Monitor) {
+  const sp = filtrosParaQuery(normalizadosDeMonitor(m));
+  sp.set("de", hojeISO(-Math.max(0, m.dias_retroativos)));
+  sp.set("ate", hojeISO());
+  return `/pesquisar/?${sp.toString()}`;
 }
 
 export function MonitoresView() {
   const { dados, erro, carregandoInicial, carregando, recarregar } = useQuery("monitores", buscarMonitores);
   const { executando, executar } = useSincronizar(recarregar);
   const agora = useAgora();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [formAberto, setFormAberto] = useState(false);
+  // "Criar monitor com estes filtros" (página Pesquisar) chega como /monitores/?novo=1&<filtros>.
+  const [prefill] = useState<MonitorForm | null>(() =>
+    searchParams.get("novo") === "1"
+      ? formDeFiltros(filtrosDeQuery(new URLSearchParams(searchParams.toString())))
+      : null,
+  );
+  const [inicial, setInicial] = useState<MonitorForm | null>(prefill);
+  useEffect(() => {
+    if (searchParams.get("novo") === "1") router.replace("/monitores/", { scroll: false });
+  }, [router, searchParams]);
+
+  const [formAberto, setFormAberto] = useState(prefill !== null);
   const [editando, setEditando] = useState<Monitor | null>(null);
   const [excluindo, setExcluindo] = useState<Monitor | null>(null);
   const [processandoExclusao, setProcessandoExclusao] = useState(false);
@@ -86,6 +103,7 @@ export function MonitoresView() {
 
   const novo = () => {
     setEditando(null);
+    setInicial(null);
     setVersaoForm((v) => v + 1);
     setFormAberto(true);
   };
@@ -154,7 +172,7 @@ export function MonitoresView() {
             <EstadoVazio
               icone={RadarIcon}
               titulo="Nenhum monitor cadastrado"
-              descricao="Crie um monitor por número da OAB, nome de advogado ou parte, número de processo ou texto livre."
+              descricao="Crie um monitor com os mesmos filtros da pesquisa oficial do DJEN: OAB, advogado, parte, processo, teor, instituição, órgão e meio — sozinhos ou combinados."
               acao={
                 <Button onClick={novo}>
                   <PlusIcon /> Criar o primeiro monitor
@@ -168,7 +186,7 @@ export function MonitoresView() {
               <TableRow>
                 <TableHead className="w-14 pl-4">Ativo</TableHead>
                 <TableHead>Monitor</TableHead>
-                <TableHead className="hidden md:table-cell">Tribunal</TableHead>
+                <TableHead className="hidden md:table-cell">Instituição</TableHead>
                 <TableHead className="hidden lg:table-cell">Destinatários</TableHead>
                 <TableHead className="hidden sm:table-cell text-right">Comunicações</TableHead>
                 <TableHead>Última sincronização</TableHead>
@@ -200,16 +218,13 @@ export function MonitoresView() {
                         >
                           {m.nome}
                         </button>
-                        <Badge variant="outline">{TIPO_MONITOR_INFO[m.tipo]?.rotulo ?? m.tipo}</Badge>
                       </div>
-                      <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground" title={m.valor}>
-                        {valorExibicao(m)}
-                      </div>
+                      <ResumoFiltros monitor={m} />
                       <div className="mt-0.5 text-xs text-muted-foreground">
                         Retroativo: {m.dias_retroativos} {m.dias_retroativos === 1 ? "dia" : "dias"}
                       </div>
                     </TableCell>
-                    <TableCell className="hidden md:table-cell">{m.sigla_tribunal ?? "Todos"}</TableCell>
+                    <TableCell className="hidden md:table-cell">{m.sigla_tribunal ?? "Todas"}</TableCell>
                     <TableCell className="hidden max-w-56 lg:table-cell">
                       {m.emails?.length ? (
                         <span className="block truncate" title={m.emails.join(", ")}>
@@ -295,6 +310,9 @@ export function MonitoresView() {
                             >
                               <RadarIcon /> Ver comunicações
                             </DropdownMenuItem>
+                            <DropdownMenuItem render={<Link href={linkTestarNaPesquisa(m)} />}>
+                              <SearchIcon /> Testar na pesquisa
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem variant="destructive" onClick={() => setExcluindo(m)}>
                               <Trash2Icon /> Excluir
@@ -323,6 +341,7 @@ export function MonitoresView() {
         aberto={formAberto}
         aoMudarAberto={setFormAberto}
         monitor={editando}
+        inicial={inicial}
         versao={versaoForm}
         aoSalvar={recarregar}
       />
@@ -348,6 +367,26 @@ export function MonitoresView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function ResumoFiltros({ monitor }: { monitor: Monitor }) {
+  const partes = partesResumo(normalizadosDeMonitor(monitor));
+  if (!partes.length) {
+    return <div className="mt-0.5 text-xs text-destructive">Sem filtros definidos</div>;
+  }
+  const texto = partes.map((p) => p.valor).join(" · ");
+  return (
+    <div className="mt-0.5 line-clamp-2 text-xs break-words text-muted-foreground" title={texto}>
+      {partes.map((p, i) => (
+        <span key={p.rotulo}>
+          {i > 0 && <span aria-hidden> · </span>}
+          <span className={p.rotulo === "OAB" || p.rotulo === "Processo" ? "font-mono" : undefined}>
+            {p.valor}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }
