@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { EmailListInput } from "@/components/email-list-input";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,6 +19,8 @@ import { mensagemErro, supabase } from "@/lib/supabase";
 import { FiltrosDjenForm } from "@/components/filtros-djen";
 import type { Monitor } from "@/lib/types";
 import { FORM_VAZIO, formDeMonitor, validarMonitor, type ErrosForm, type MonitorForm } from "./monitor-schema";
+import { ParaQuemEnviar, type DadosEnvio } from "./para-quem-enviar";
+import { QuandoEnviar } from "./quando-enviar";
 
 export function MonitorFormDialog({
   aberto,
@@ -27,6 +28,7 @@ export function MonitorFormDialog({
   monitor,
   inicial,
   versao,
+  envio,
   aoSalvar,
 }: {
   aberto: boolean;
@@ -36,6 +38,8 @@ export function MonitorFormDialog({
   inicial?: MonitorForm | null;
   /** Muda a cada abertura para reiniciar o formulário. */
   versao: number;
+  /** Contas de envio e "Recebem tudo" (null enquanto carrega). */
+  envio: DadosEnvio | null;
   aoSalvar: () => void;
 }) {
   return (
@@ -45,6 +49,7 @@ export function MonitorFormDialog({
           key={versao}
           monitor={monitor}
           inicial={inicial ?? null}
+          envio={envio}
           aoCancelar={() => aoMudarAberto(false)}
           aoSalvar={() => {
             aoMudarAberto(false);
@@ -89,11 +94,13 @@ function Campo({
 function FormInterno({
   monitor,
   inicial,
+  envio,
   aoCancelar,
   aoSalvar,
 }: {
   monitor: Monitor | null;
   inicial: MonitorForm | null;
+  envio: DadosEnvio | null;
   aoCancelar: () => void;
   aoSalvar: () => void;
 }) {
@@ -103,14 +110,28 @@ function FormInterno({
   const [erros, setErros] = useState<ErrosForm>({});
   const [salvando, setSalvando] = useState(false);
 
-  const set = <K extends keyof MonitorForm>(k: K, v: MonitorForm[K]) => {
-    setForm((f) => ({ ...f, [k]: v }));
-    if (k !== "filtros" && erros[k as keyof Omit<ErrosForm, "filtros">]) setErros((e) => ({ ...e, [k]: undefined }));
+  /** Campos do formulário que têm erro próprio (o restante é agrupado no campo exibido). */
+  const campoDoErro = (k: keyof MonitorForm): keyof Omit<ErrosForm, "filtros"> | null => {
+    if (k === "filtros" || k === "conta_envio_id") return null;
+    if (k === "modo_dias") return "dias_semana";
+    if (k === "modo_horario") return "horarios";
+    return k;
   };
+
+  const mudar = (mudancas: Partial<MonitorForm>) => {
+    setForm((f) => ({ ...f, ...mudancas }));
+    const campos = (Object.keys(mudancas) as (keyof MonitorForm)[])
+      .map(campoDoErro)
+      .filter((c): c is keyof Omit<ErrosForm, "filtros"> => c !== null && !!erros[c]);
+    if (campos.length) setErros((e) => ({ ...e, ...Object.fromEntries(campos.map((c) => [c, undefined])) }));
+  };
+
+  const set = <K extends keyof MonitorForm>(k: K, v: MonitorForm[K]) => mudar({ [k]: v } as Partial<MonitorForm>);
 
   const salvar = async (e: React.FormEvent) => {
     e.preventDefault();
-    const r = validarMonitor(form);
+    // A coluna conta_envio_id só existe depois da migration de contas de envio.
+    const r = validarMonitor(form, { comConta: !!envio && !envio.pendente });
     if (!r.ok) {
       setErros(r.erros);
       return;
@@ -136,8 +157,8 @@ function FormInterno({
       <DialogHeader>
         <DialogTitle>{monitor ? "Editar monitor" : "Novo monitor"}</DialogTitle>
         <DialogDescription>
-          Use os mesmos filtros da pesquisa oficial do DJEN — sozinhos ou combinados. A cada
-          sincronização o período pesquisado é de hoje até os dias retroativos.
+          Use os mesmos filtros da pesquisa oficial do DJEN — sozinhos ou combinados — e escolha quando
+          receber os e-mails. O período de cada busca é automático: desde a última sincronização.
         </DialogDescription>
       </DialogHeader>
 
@@ -164,42 +185,19 @@ function FormInterno({
             setErros((e) => (e.filtros ? { ...e, filtros: { ...e.filtros, [campo]: undefined } } : e))
           }
           periodo={
-            <Campo
-              id="m-dias"
-              rotulo="Dias retroativos"
-              erro={erros.dias_retroativos}
-              ajuda="Período de cada sincronização: de hoje menos N dias até hoje (0 a 30)."
-            >
-              <Input
-                id="m-dias"
-                type="number"
-                min={0}
-                max={30}
-                step={1}
-                inputMode="numeric"
-                className="max-w-32"
-                value={form.dias_retroativos}
-                onChange={(e) => set("dias_retroativos", e.target.value)}
-                aria-invalid={erros.dias_retroativos ? true : undefined}
-              />
-            </Campo>
+            <div>
+              <div className="mb-1.5 text-sm leading-none font-medium">Período</div>
+              <p className="flex min-h-8 items-center text-sm text-muted-foreground">
+                Automático — desde a última sincronização, sem perder nada.
+              </p>
+            </div>
           }
         />
       </fieldset>
 
-      <Campo
-        id="m-emails"
-        rotulo="E-mails destinatários"
-        erro={erros.emails}
-        ajuda="Vazio = usa os e-mails padrão das Configurações. Enter ou vírgula para adicionar."
-      >
-        <EmailListInput
-          id="m-emails"
-          valor={form.emails}
-          aoMudar={(v) => set("emails", v)}
-          invalido={!!erros.emails}
-        />
-      </Campo>
+      <QuandoEnviar form={form} erros={erros} aoMudar={mudar} />
+
+      <ParaQuemEnviar form={form} erros={erros} envio={envio} aoMudar={mudar} />
 
       <div>
         <Label htmlFor="m-ativo" className="mb-1.5">

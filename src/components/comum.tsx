@@ -8,7 +8,16 @@ import { Button } from "@/components/ui/button";
 import { STATUS_EXECUCAO_INFO } from "@/lib/constants";
 import type { StatusExecucao } from "@/lib/types";
 
-export function Logo({ className, compacto }: { className?: string; compacto?: boolean }) {
+export function Logo({
+  className,
+  compacto,
+  escuro,
+}: {
+  className?: string;
+  compacto?: boolean;
+  /** Versão para fundo azul-marinho (texto claro). */
+  escuro?: boolean;
+}) {
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -16,11 +25,29 @@ export function Logo({ className, compacto }: { className?: string; compacto?: b
       </div>
       {!compacto && (
         <div className="leading-tight">
-          <div className="text-sm font-semibold tracking-tight">DJEN Monitor</div>
-          <div className="text-xs text-muted-foreground">Comunicações processuais</div>
+          <div
+            className={cn(
+              "text-sm font-semibold tracking-tight",
+              escuro && "text-brand-foreground",
+            )}
+          >
+            DJEN Monitor
+          </div>
+          <div className={cn("text-xs", escuro ? "text-brand-foreground/75" : "text-muted-foreground")}>
+            Comunicações processuais
+          </div>
         </div>
       )}
     </div>
+  );
+}
+
+/** Aviso de que o sistema não é um serviço oficial (não se passa pelo órgão oficial). */
+export function AvisoIndependente({ className }: { className?: string }) {
+  return (
+    <p className={cn("text-[11px] leading-snug text-muted-foreground", className)}>
+      Sistema independente — não é um serviço oficial do CNJ. Fonte dos dados: API pública do DJEN.
+    </p>
   );
 }
 
@@ -115,9 +142,9 @@ export function SupabaseNaoConfigurado({ className }: { className?: string }) {
       <AlertTitle>Supabase não configurado</AlertTitle>
       <AlertDescription>
         <p>
-          Defina as variáveis <code className="font-mono text-xs">NEXT_PUBLIC_SUPABASE_URL</code> e{" "}
-          <code className="font-mono text-xs">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> antes do build
-          (em <code className="font-mono text-xs">.env.local</code> no desenvolvimento ou nas
+          Defina as variáveis <code className="tabular-nums text-xs">NEXT_PUBLIC_SUPABASE_URL</code> e{" "}
+          <code className="tabular-nums text-xs">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> antes do build
+          (em <code className="tabular-nums text-xs">.env.local</code> no desenvolvimento ou nas
           variáveis do workflow de publicação) e gere o site novamente.
         </p>
       </AlertDescription>

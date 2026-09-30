@@ -1,7 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { ClockIcon, GaugeIcon, InfoIcon, KeyRoundIcon, Loader2Icon, MapPinIcon, SearchIcon } from "lucide-react";
+import {
+  ClockIcon,
+  GaugeIcon,
+  InfoIcon,
+  KeyRoundIcon,
+  Loader2Icon,
+  MailIcon,
+  MapPinIcon,
+  SearchIcon,
+  UsersIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { useAuth } from "@/components/auth-provider";
@@ -25,66 +35,94 @@ import { formatarDataHora } from "@/lib/format";
 import { validarNovaSenha } from "@/lib/senha";
 import { mensagemErro, supabase } from "@/lib/supabase";
 import type { ConfiguracaoRow, Configuracoes } from "@/lib/types";
-import { GmailCard } from "./gmail-card";
+import { ContasEnvioCard } from "./contas-envio-card";
 
 const PADRAO: Configuracoes = {
-  emails_padrao: [],
+  emails_recebem_tudo: [],
   assunto_prefixo: "[DJEN]",
   notificar_sem_novidades: false,
 };
 
-const configSchema = z.object({
-  emails_padrao: z.array(z.email("E-mail inválido.")).max(20, "No máximo 20 e-mails."),
+type ConfigAviso = Pick<Configuracoes, "assunto_prefixo" | "notificar_sem_novidades">;
+
+const avisoSchema = z.object({
   assunto_prefixo: z.string().trim().max(40, "Use no máximo 40 caracteres."),
   notificar_sem_novidades: z.boolean(),
 });
+
+const recebemTudoSchema = z.array(z.email("E-mail inválido.")).max(20, "No máximo 20 e-mails.");
+
+function listaDeEmails(v: unknown): string[] | null {
+  return Array.isArray(v) ? v.filter((e): e is string => typeof e === "string") : null;
+}
 
 async function buscarConfiguracoes() {
   const { data, error } = await supabase().from("configuracoes").select("*");
   if (error) throw error;
   const linhas = (data ?? []) as ConfiguracaoRow[];
   const mapa = new Map(linhas.map((l) => [l.chave, l.valor]));
-  const emails = mapa.get("emails_padrao");
   const prefixo = mapa.get("assunto_prefixo");
   const notificar = mapa.get("notificar_sem_novidades");
   const config: Configuracoes = {
-    emails_padrao: Array.isArray(emails) ? emails.filter((e): e is string => typeof e === "string") : PADRAO.emails_padrao,
+    // 'emails_padrao' é a chave antiga (antes da migration de contas de envio).
+    emails_recebem_tudo:
+      listaDeEmails(mapa.get("emails_recebem_tudo")) ?? listaDeEmails(mapa.get("emails_padrao")) ?? PADRAO.emails_recebem_tudo,
     assunto_prefixo: typeof prefixo === "string" ? prefixo : PADRAO.assunto_prefixo,
     notificar_sem_novidades: typeof notificar === "boolean" ? notificar : PADRAO.notificar_sem_novidades,
   };
-  const atualizado = linhas.reduce<string | null>(
-    (max, l) => (!max || l.updated_at > max ? l.updated_at : max),
-    null,
-  );
-  return { config, atualizado };
+  const ultimaAtualizacao = (chaves: string[]) =>
+    linhas
+      .filter((l) => chaves.includes(l.chave))
+      .reduce<string | null>((max, l) => (!max || l.updated_at > max ? l.updated_at : max), null);
+  return {
+    config,
+    atualizadoAviso: ultimaAtualizacao(["assunto_prefixo", "notificar_sem_novidades"]),
+    atualizadoRecebemTudo: ultimaAtualizacao(["emails_recebem_tudo", "emails_padrao"]),
+  };
 }
 
 export function ConfiguracoesView() {
   const { dados, erro, carregandoInicial, recarregar } = useQuery("configuracoes", buscarConfiguracoes);
 
+  const esqueleto = (
+    <Card>
+      <CardContent className="space-y-4">
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-2/3" />
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="space-y-6">
-      <PageHeader titulo="Configurações" descricao="Notificações por e-mail e informações do serviço." />
+      <PageHeader titulo="Configurações" descricao="Contas de envio, destinatários e informações do serviço." />
 
       {erro && <ErroCarregamento mensagem={erro} aoTentarNovamente={recarregar} />}
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-6 lg:col-span-3">
-          <GmailCard emailsPadrao={dados?.config.emails_padrao ?? []} />
+          <ContasEnvioCard recebemTudo={dados?.config.emails_recebem_tudo ?? []} />
           {carregandoInicial ? (
-            <Card>
-              <CardContent className="space-y-4">
-                <Skeleton className="h-6 w-40" />
-                <Skeleton className="h-9 w-full" />
-                <Skeleton className="h-9 w-full" />
-                <Skeleton className="h-9 w-2/3" />
-              </CardContent>
-            </Card>
+            esqueleto
+          ) : dados ? (
+            <FormRecebemTudo
+              key={`rt:${dados.atualizadoRecebemTudo ?? "inicial"}`}
+              inicial={dados.config.emails_recebem_tudo}
+              atualizado={dados.atualizadoRecebemTudo}
+              aoSalvar={recarregar}
+            />
+          ) : null}
+          {carregandoInicial ? (
+            esqueleto
           ) : dados ? (
             <FormNotificacoes
-              key={dados.atualizado ?? "inicial"}
-              inicial={dados.config}
-              atualizado={dados.atualizado}
+              key={`av:${dados.atualizadoAviso ?? "inicial"}`}
+              inicial={{
+                assunto_prefixo: dados.config.assunto_prefixo,
+                notificar_sem_novidades: dados.config.notificar_sem_novidades,
+              }}
+              atualizado={dados.atualizadoAviso}
               aoSalvar={recarregar}
             />
           ) : null}
@@ -98,27 +136,130 @@ export function ConfiguracoesView() {
   );
 }
 
+function RodapeForm({
+  atualizado,
+  alterado,
+  salvando,
+  aoDescartar,
+}: {
+  atualizado: string | null;
+  alterado: boolean;
+  salvando: boolean;
+  aoDescartar: () => void;
+}) {
+  return (
+    <CardFooter className="flex-wrap justify-between gap-2">
+      <span className="text-xs text-muted-foreground">
+        {atualizado ? `Atualizado em ${formatarDataHora(atualizado)}` : ""}
+      </span>
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" disabled={!alterado || salvando} onClick={aoDescartar}>
+          Descartar
+        </Button>
+        <Button type="submit" disabled={!alterado || salvando}>
+          {salvando && <Loader2Icon className="animate-spin" />}
+          Salvar
+        </Button>
+      </div>
+    </CardFooter>
+  );
+}
+
+function FormRecebemTudo({
+  inicial,
+  atualizado,
+  aoSalvar,
+}: {
+  inicial: string[];
+  atualizado: string | null;
+  aoSalvar: () => void;
+}) {
+  const [emails, setEmails] = useState<string[]>(inicial);
+  const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  const alterado = JSON.stringify(emails) !== JSON.stringify(inicial);
+
+  const salvar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const r = recebemTudoSchema.safeParse(emails);
+    if (!r.success) {
+      setErro(r.error.issues[0]?.message ?? "Lista inválida.");
+      return;
+    }
+    setErro(null);
+    setSalvando(true);
+    const { error } = await supabase()
+      .from("configuracoes")
+      .upsert([{ chave: "emails_recebem_tudo", valor: r.data, updated_at: new Date().toISOString() }], {
+        onConflict: "chave",
+      });
+    setSalvando(false);
+    if (error) {
+      toast.error("Não foi possível salvar", { description: mensagemErro(error) });
+      return;
+    }
+    toast.success("Lista “Recebem tudo” salva.");
+    aoSalvar();
+  };
+
+  return (
+    <Card>
+      <form onSubmit={salvar} noValidate className="contents">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <UsersIcon className="size-4" /> Recebem tudo
+          </CardTitle>
+          <CardDescription>
+            Recebem as comunicações de todos os monitores, além dos destinatários de cada monitor.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          <Label htmlFor="c-recebem-tudo">E-mails</Label>
+          <EmailListInput id="c-recebem-tudo" valor={emails} aoMudar={setEmails} invalido={!!erro} />
+          {erro ? (
+            <p className="text-xs text-destructive">{erro}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Enter ou vírgula para adicionar. Cada pessoa recebe um e-mail por conta remetente, com as
+              comunicações agrupadas.
+            </p>
+          )}
+        </CardContent>
+        <RodapeForm
+          atualizado={atualizado}
+          alterado={alterado}
+          salvando={salvando}
+          aoDescartar={() => {
+            setEmails(inicial);
+            setErro(null);
+          }}
+        />
+      </form>
+    </Card>
+  );
+}
+
 function FormNotificacoes({
   inicial,
   atualizado,
   aoSalvar,
 }: {
-  inicial: Configuracoes;
+  inicial: ConfigAviso;
   atualizado: string | null;
   aoSalvar: () => void;
 }) {
-  const [form, setForm] = useState<Configuracoes>(inicial);
-  const [erros, setErros] = useState<Partial<Record<keyof Configuracoes, string>>>({});
+  const [form, setForm] = useState<ConfigAviso>(inicial);
+  const [erros, setErros] = useState<Partial<Record<keyof ConfigAviso, string>>>({});
   const [salvando, setSalvando] = useState(false);
   const alterado = JSON.stringify(form) !== JSON.stringify(inicial);
 
   const salvar = async (e: React.FormEvent) => {
     e.preventDefault();
-    const r = configSchema.safeParse(form);
+    const r = avisoSchema.safeParse(form);
     if (!r.success) {
       const novos: typeof erros = {};
       for (const i of r.error.issues) {
-        const k = i.path[0] as keyof Configuracoes;
+        const k = i.path[0] as keyof ConfigAviso;
         if (k && !novos[k]) novos[k] = i.message;
       }
       setErros(novos);
@@ -131,7 +272,6 @@ function FormNotificacoes({
       .from("configuracoes")
       .upsert(
         [
-          { chave: "emails_padrao", valor: r.data.emails_padrao, updated_at: agora },
           { chave: "assunto_prefixo", valor: r.data.assunto_prefixo, updated_at: agora },
           { chave: "notificar_sem_novidades", valor: r.data.notificar_sem_novidades, updated_at: agora },
         ],
@@ -151,28 +291,9 @@ function FormNotificacoes({
       <form onSubmit={salvar} noValidate className="contents">
         <CardHeader>
           <CardTitle>Notificações por e-mail</CardTitle>
-          <CardDescription>
-            Usadas por todos os monitores que não têm destinatários próprios.
-          </CardDescription>
+          <CardDescription>Ajustes gerais dos e-mails de aviso, para todos os monitores.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="space-y-1.5">
-            <Label htmlFor="c-emails">E-mails padrão</Label>
-            <EmailListInput
-              id="c-emails"
-              valor={form.emails_padrao}
-              aoMudar={(v) => setForm((f) => ({ ...f, emails_padrao: v }))}
-              invalido={!!erros.emails_padrao}
-            />
-            {erros.emails_padrao ? (
-              <p className="text-xs text-destructive">{erros.emails_padrao}</p>
-            ) : form.emails_padrao.length === 0 ? (
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                Sem e-mails padrão, monitores sem destinatários próprios não enviarão avisos.
-              </p>
-            ) : null}
-          </div>
-
           <div className="space-y-1.5">
             <Label htmlFor="c-prefixo">Prefixo do assunto</Label>
             <Input
@@ -206,28 +327,15 @@ function FormNotificacoes({
             />
           </div>
         </CardContent>
-        <CardFooter className="flex-wrap justify-between gap-2">
-          <span className="text-xs text-muted-foreground">
-            {atualizado ? `Atualizado em ${formatarDataHora(atualizado)}` : ""}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!alterado || salvando}
-              onClick={() => {
-                setForm(inicial);
-                setErros({});
-              }}
-            >
-              Descartar
-            </Button>
-            <Button type="submit" disabled={!alterado || salvando}>
-              {salvando && <Loader2Icon className="animate-spin" />}
-              Salvar
-            </Button>
-          </div>
-        </CardFooter>
+        <RodapeForm
+          atualizado={atualizado}
+          alterado={alterado}
+          salvando={salvando}
+          aoDescartar={() => {
+            setForm(inicial);
+            setErros({});
+          }}
+        />
       </form>
     </Card>
   );
@@ -313,13 +421,19 @@ function LimitesApi() {
       icone: SearchIcon,
       titulo: "Até 10 mil resultados por consulta",
       texto:
-        "Buscas muito amplas (ex.: texto genérico ou muitos dias retroativos) podem ser truncadas. Prefira OAB, nome completo ou número do processo, e filtre por tribunal quando possível.",
+        "Buscas muito amplas (ex.: texto genérico ou muitos dias sem sincronizar) podem ser truncadas. Prefira OAB, nome completo ou número do processo, e filtre por tribunal quando possível.",
     },
     {
       icone: ClockIcon,
       titulo: "Execução automática a cada 30 minutos",
       texto:
-        "Um agendamento chama a função de sincronização periodicamente. O botão “Sincronizar agora” dispara uma execução extra — apenas uma execução roda por vez.",
+        "Um agendamento chama a função de sincronização a cada 30 minutos; cada monitor roda só nos dias e horários escolhidos em “Quando enviar”. O período de busca é automático: desde a última sincronização (a primeira busca usa a janela definida em “Avançado”). O botão “Sincronizar agora” ignora o agendamento e dispara uma execução extra — apenas uma execução roda por vez.",
+    },
+    {
+      icone: MailIcon,
+      titulo: "Quem recebe cada e-mail",
+      texto:
+        "Cada monitor envia pela conta escolhida nele (ou pela conta padrão) para os destinatários do monitor. Os endereços de “Recebem tudo” recebem as comunicações de todos os monitores. É enviado um e-mail por remetente × destinatário, com as comunicações agrupadas.",
     },
     {
       icone: MapPinIcon,

@@ -1,4 +1,5 @@
-// Tipos espelhando supabase/migrations/ (schema + 20260929180000_monitores_filtros.sql)
+// Tipos espelhando supabase/migrations/ (schema + 20260929180000_monitores_filtros.sql
+// + 20260930180520_agendamento_monitores.sql)
 
 export type StatusExecucao = "executando" | "sucesso" | "parcial" | "erro";
 export type OrigemExecucao = "cron" | "manual";
@@ -30,7 +31,16 @@ export interface Monitor extends FiltrosMonitor {
   nome: string;
   emails: string[] | null;
   ativo: boolean;
+  /** Janela (em dias) só da PRIMEIRA busca; depois o período é automático. */
   dias_retroativos: number;
+  /** Dias em que roda/envia: 0 = domingo … 6 = sábado (horário de Brasília). 1 a 7 itens. */
+  dias_semana: number[];
+  /** Horários fixos 'HH:MM' (:00/:30). null/vazio = assim que publicar (a cada 30 min). */
+  horarios: string[] | null;
+  /** Controle interno (somente leitura): último horário agendado já processado. */
+  ultimo_envio_agendado: string | null;
+  /** Conta de envio (contas_envio.id); null = conta padrão. Ausente antes da migration de contas de envio. */
+  conta_envio_id?: number | null;
   ultima_sincronizacao: string | null;
   ultimo_erro: string | null;
   created_at: string;
@@ -38,7 +48,7 @@ export interface Monitor extends FiltrosMonitor {
 
 export type MonitorInput = Omit<
   Monitor,
-  "id" | "created_at" | "ultima_sincronizacao" | "ultimo_erro"
+  "id" | "created_at" | "ultima_sincronizacao" | "ultimo_erro" | "ultimo_envio_agendado"
 >;
 
 export interface Destinatario {
@@ -133,7 +143,8 @@ export interface ConfiguracaoRow {
 }
 
 export interface Configuracoes {
-  emails_padrao: string[];
+  /** Recebem as comunicações de todos os monitores (substitui 'emails_padrao'). */
+  emails_recebem_tudo: string[];
   assunto_prefixo: string;
   notificar_sem_novidades: boolean;
 }

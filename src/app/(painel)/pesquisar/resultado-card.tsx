@@ -84,7 +84,7 @@ export function ResultadoCard({ item }: { item: ItemDjen }) {
         <div className="min-w-0">
           {processo ? (
             <div className="flex items-center gap-1">
-              <span className="font-mono text-sm font-semibold break-all">{processo}</span>
+              <span className="tabular-nums text-sm font-semibold break-all">{processo}</span>
               <Button variant="ghost" size="icon-xs" aria-label="Copiar número do processo" onClick={copiar}>
                 <CopyIcon />
               </Button>

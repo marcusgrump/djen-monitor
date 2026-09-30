@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircleIcon,
+  CalendarClockIcon,
   CheckCircle2Icon,
   Loader2Icon,
   MoreHorizontalIcon,
@@ -47,12 +48,15 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgora, useQuery } from "@/hooks/use-query";
 import { useSincronizar } from "@/hooks/use-sincronizar";
+import { descreverInstante, horaBrasilia, proximoEnvio, resumoAgendamento } from "@/lib/agendamento";
 import { filtrosDeQuery, filtrosParaQuery, normalizadosDeMonitor, partesResumo } from "@/lib/filtros";
 import { formatarDataHora, formatarNumero, hojeISO, tempoRelativo } from "@/lib/format";
 import { mensagemErro, supabase } from "@/lib/supabase";
 import type { Monitor } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { lerRecebemTudo, listarContas } from "@/lib/contas-envio";
 import { MonitorFormDialog } from "./monitor-form";
+import type { DadosEnvio } from "./para-quem-enviar";
 import { formDeFiltros, type MonitorForm } from "./monitor-schema";
 
 type MonitorComContagem = Monitor & { monitor_comunicacoes: { count: number }[] };
@@ -67,6 +71,15 @@ async function buscarMonitores() {
   return (data ?? []) as MonitorComContagem[];
 }
 
+/** Contas de envio e "Recebem tudo" — tolera o servidor sem a migration de contas de envio. */
+async function buscarDadosEnvio(): Promise<DadosEnvio> {
+  const [contas, recebemTudo] = await Promise.all([
+    listarContas(),
+    lerRecebemTudo().catch(() => [] as string[]),
+  ]);
+  return { pendente: contas.pendente, contas: contas.contas, recebemTudo };
+}
+
 /** Link para a página Pesquisar com os filtros do monitor e o período das sincronizações. */
 export function linkTestarNaPesquisa(m: Monitor) {
   const sp = filtrosParaQuery(normalizadosDeMonitor(m));
@@ -79,6 +92,7 @@ export function MonitoresView() {
   const { dados, erro, carregandoInicial, carregando, recarregar } = useQuery("monitores", buscarMonitores);
   const { executando, executar } = useSincronizar(recarregar);
   const agora = useAgora();
+  const envio = useQuery("monitores:envio", buscarDadosEnvio);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -187,7 +201,7 @@ export function MonitoresView() {
                 <TableHead className="w-14 pl-4">Ativo</TableHead>
                 <TableHead>Monitor</TableHead>
                 <TableHead className="hidden md:table-cell">Instituição</TableHead>
-                <TableHead className="hidden lg:table-cell">Destinatários</TableHead>
+                <TableHead className="hidden lg:table-cell">Envio</TableHead>
                 <TableHead className="hidden sm:table-cell text-right">Comunicações</TableHead>
                 <TableHead>Última sincronização</TableHead>
                 <TableHead className="w-24 pr-4 text-right">
@@ -220,19 +234,11 @@ export function MonitoresView() {
                         </button>
                       </div>
                       <ResumoFiltros monitor={m} />
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        Retroativo: {m.dias_retroativos} {m.dias_retroativos === 1 ? "dia" : "dias"}
-                      </div>
+                      <Agendamento monitor={m} agora={agora} />
                     </TableCell>
                     <TableCell className="hidden md:table-cell">{m.sigla_tribunal ?? "Todas"}</TableCell>
                     <TableCell className="hidden max-w-56 lg:table-cell">
-                      {m.emails?.length ? (
-                        <span className="block truncate" title={m.emails.join(", ")}>
-                          {m.emails.length === 1 ? m.emails[0] : `${m.emails.length} e-mails`}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">Padrão</span>
-                      )}
+                      <ResumoEnvio monitor={m} envio={envio.dados ?? null} />
                     </TableCell>
                     <TableCell className="hidden text-right sm:table-cell">
                       <Link
@@ -255,7 +261,7 @@ export function MonitoresView() {
                             <TooltipContent className="max-w-sm whitespace-pre-wrap">{m.ultimo_erro}</TooltipContent>
                           </Tooltip>
                         ) : m.ultima_sincronizacao ? (
-                          <CheckCircle2Icon className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                          <CheckCircle2Icon className="size-4 text-success-text" aria-hidden />
                         ) : null}
                         <span className="tabular-nums" title={formatarDataHora(m.ultima_sincronizacao)}>
                           {m.ultima_sincronizacao
@@ -330,7 +336,7 @@ export function MonitoresView() {
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        Destinatários “Padrão” usam os e-mails definidos em{" "}
+        Além dos destinatários de cada monitor, os e-mails de “Recebem tudo” e as contas de envio ficam em{" "}
         <Link href="/configuracoes/" className={buttonVariants({ variant: "link", className: "h-auto p-0 text-xs" })}>
           Configurações
         </Link>
@@ -343,7 +349,11 @@ export function MonitoresView() {
         monitor={editando}
         inicial={inicial}
         versao={versaoForm}
-        aoSalvar={recarregar}
+        envio={envio.dados ?? null}
+        aoSalvar={() => {
+          recarregar();
+          envio.recarregar();
+        }}
       />
 
       <Dialog open={excluindo !== null} onOpenChange={(v) => !v && !processandoExclusao && setExcluindo(null)}>
@@ -352,8 +362,8 @@ export function MonitoresView() {
             <DialogTitle>Excluir monitor?</DialogTitle>
             <DialogDescription>
               O monitor <strong className="text-foreground">{excluindo?.nome}</strong> deixará de ser
-              sincronizado. As comunicações já registradas continuam no painel, mas perdem o vínculo com
-              este monitor. Esta ação não pode ser desfeita.
+              sincronizado. As comunicações já encontradas continuam no histórico, mas não serão mais
+              enviadas por e-mail. Esta ação não pode ser desfeita.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -382,11 +392,75 @@ function ResumoFiltros({ monitor }: { monitor: Monitor }) {
       {partes.map((p, i) => (
         <span key={p.rotulo}>
           {i > 0 && <span aria-hidden> · </span>}
-          <span className={p.rotulo === "OAB" || p.rotulo === "Processo" ? "font-mono" : undefined}>
+          <span className={p.rotulo === "OAB" || p.rotulo === "Processo" ? "tabular-nums" : undefined}>
             {p.valor}
           </span>
         </span>
       ))}
+    </div>
+  );
+}
+
+function Agendamento({ monitor, agora }: { monitor: Monitor; agora: number | null }) {
+  const resumo = resumoAgendamento(monitor);
+  const proximo = monitor.ativo && agora ? proximoEnvio(monitor, agora) : null;
+  return (
+    <div className="mt-0.5 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1">
+        <CalendarClockIcon className="size-3.5 shrink-0" aria-hidden />
+        <span>
+          <span className="sr-only">Envio: </span>
+          {resumo}
+        </span>
+      </div>
+      {proximo && agora && (
+        <div className="pl-4.5" title={formatarDataHora(new Date(proximo.instante))}>
+          Próximo envio:{" "}
+          {proximo.pendente
+            ? `em instantes (horário das ${horaBrasilia(proximo.instante)})`
+            : descreverInstante(proximo.instante, agora)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResumoEnvio({ monitor, envio }: { monitor: Monitor; envio: DadosEnvio | null }) {
+  const proprios = monitor.emails?.length ?? 0;
+  const recebemTudo = envio?.recebemTudo.length ?? 0;
+  const lista = [...(monitor.emails ?? []), ...(envio?.recebemTudo ?? [])];
+  const semNinguem = !!envio && proprios === 0 && recebemTudo === 0;
+
+  let remetente: string | null = null;
+  if (envio && !envio.pendente) {
+    const conta =
+      monitor.conta_envio_id != null
+        ? envio.contas.find((c) => c.id === monitor.conta_envio_id)
+        : envio.contas.find((c) => c.padrao);
+    remetente = conta
+      ? `${conta.email}${monitor.conta_envio_id == null ? " (padrão)" : ""}${conta.ativo ? "" : " (inativa)"}`
+      : monitor.conta_envio_id != null
+        ? "conta removida"
+        : "sem conta padrão";
+  }
+
+  return (
+    <div className="text-sm">
+      <span
+        className={cn("block truncate", semNinguem && "text-warning-text")}
+        title={lista.length ? lista.join(", ") : undefined}
+      >
+        {semNinguem
+          ? "Sem destinatários"
+          : proprios
+            ? `${proprios} ${proprios === 1 ? "destinatário" : "destinatários"}${recebemTudo ? " + Recebem tudo" : ""}`
+            : `Só “Recebem tudo” (${recebemTudo})`}
+      </span>
+      {remetente && (
+        <span className="block truncate text-xs text-muted-foreground" title={`Enviado por ${remetente}`}>
+          por {remetente}
+        </span>
+      )}
     </div>
   );
 }

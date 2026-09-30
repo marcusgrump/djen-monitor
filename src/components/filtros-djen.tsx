@@ -172,7 +172,7 @@ function SeletorInstituicao({
           aria-invalid={invalido || undefined}
           disabled={desabilitado}
         />
-        <p className="flex flex-wrap items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
+        <p className="flex flex-wrap items-center gap-1 text-xs text-warning-text">
           Não foi possível carregar a lista de instituições; digite a sigla.
           <Button type="button" variant="link" size="xs" className="h-auto p-0" onClick={lista.recarregar}>
             <RotateCwIcon /> Tentar de novo
@@ -319,7 +319,7 @@ function SeletorOrgao({
         </ComboboxContent>
       </Combobox>
       {lista.erro && !lista.dados && siglaValida && (
-        <p className="flex flex-wrap items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
+        <p className="flex flex-wrap items-center gap-1 text-xs text-warning-text">
           Não foi possível carregar os órgãos.
           <Button type="button" variant="link" size="xs" className="h-auto p-0" onClick={lista.recarregar}>
             <RotateCwIcon /> Tentar de novo
@@ -341,7 +341,7 @@ export interface FiltrosDjenProps {
   erros?: ErrosFiltros;
   /** Chamado quando um campo com erro é alterado (para o pai limpar o erro). */
   aoLimparErro?: (campo: CampoFiltro | "geral") => void;
-  /** Modo monitor: conteúdo exibido no lugar das datas (ex.: "Dias retroativos"). */
+  /** Modo monitor: conteúdo exibido no lugar das datas (ex.: aviso de período automático). */
   periodo?: React.ReactNode;
   desabilitado?: boolean;
   /** Modo pesquisa: quando informado, renderiza um <form> com os botões Limpar e Pesquisar. */

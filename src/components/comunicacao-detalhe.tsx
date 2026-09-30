@@ -178,12 +178,12 @@ function Conteudo({ id, aoAlterar }: { id: number; aoAlterar?: () => void }) {
           {dados.meio && <Badge variant="outline">{ROTULO_MEIO[dados.meio] ?? dados.meio}</Badge>}
           <Badge
             variant="outline"
-            className={lida ? "text-muted-foreground" : "border-sky-500/40 text-sky-700 dark:text-sky-300"}
+            className={lida ? "text-muted-foreground" : "border-primary/40 bg-accent text-primary"}
           >
             {lida ? "Lida" : "Não lida"}
           </Badge>
         </div>
-        <SheetTitle className="mt-2 flex items-center gap-1 font-mono text-base break-all">
+        <SheetTitle className="mt-2 flex items-center gap-1 tabular-nums text-base break-all">
           {processo}
           {processo !== "—" && (
             <Button variant="ghost" size="icon-xs" aria-label="Copiar número do processo" onClick={() => copiar(processo)}>
@@ -237,7 +237,10 @@ function Conteudo({ id, aoAlterar }: { id: number; aoAlterar?: () => void }) {
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Encontrada pelos monitores</h3>
           {monitores.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhum monitor vinculado.</p>
+            <p className="text-sm text-muted-foreground">
+              Nenhum monitor vinculado — o monitor que a encontrou pode ter sido removido. Ela continua no
+              histórico, mas não será enviada por e-mail.
+            </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {monitores.map(({ monitores: m }) => (

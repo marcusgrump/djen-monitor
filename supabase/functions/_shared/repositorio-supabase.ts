@@ -12,6 +12,7 @@ import type {
   MonitorVinculado,
   NovaComunicacao,
   OrigemSync,
+  RegistroEnvio,
 } from './tipos.ts';
 import { CONFIGURACOES_PADRAO } from './tipos.ts';
 
@@ -35,7 +36,12 @@ function lotes<T>(lista: T[], tamanho: number): T[][] {
 const COLUNAS_FILTROS =
   'texto, sigla_tribunal, orgao_id, orgao_nome, meio, numero_processo, nome_parte, nome_advogado, numero_oab, uf_oab';
 
-const COLUNAS_MONITOR = `id, nome, ${COLUNAS_FILTROS}, emails, ativo, dias_retroativos, ultima_sincronizacao, ultimo_erro`;
+const COLUNAS_MONITOR =
+  `id, nome, ${COLUNAS_FILTROS}, emails, ativo, dias_retroativos, ultima_sincronizacao, ultimo_erro, ` +
+  'dias_semana, horarios, ultimo_envio_agendado, conta_envio_id';
+
+/** Colunas do monitor embutidas em cada comunicação pendente (destinatários + descrição no e-mail). */
+const COLUNAS_MONITOR_VINCULADO = `id, nome, emails, ativo, conta_envio_id, ${COLUNAS_FILTROS}`;
 
 export class RepositorioSupabase implements Repositorio {
   constructor(private readonly db: SupabaseClient) {}
@@ -43,7 +49,7 @@ export class RepositorioSupabase implements Repositorio {
   async listarMonitores(filtro: { monitorId?: number } = {}): Promise<Monitor[]> {
     let q = this.db.from('monitores').select(COLUNAS_MONITOR).order('id');
     q = filtro.monitorId !== undefined ? q.eq('id', filtro.monitorId) : q.eq('ativo', true);
-    return exigir(await q, 'Falha ao carregar monitores') as Monitor[];
+    return exigir(await q, 'Falha ao carregar monitores') as unknown as Monitor[];
   }
 
   async obterConfiguracoes(): Promise<Configuracoes> {
@@ -52,9 +58,14 @@ export class RepositorioSupabase implements Repositorio {
       'Falha ao carregar configurações',
     ) as Array<{ chave: string; valor: unknown }>;
     const cfg: Configuracoes = { ...CONFIGURACOES_PADRAO };
+    let temRecebemTudo = false;
     for (const { chave, valor } of linhas) {
-      if (chave === 'emails_padrao' && Array.isArray(valor)) {
-        cfg.emails_padrao = valor.filter((e): e is string => typeof e === 'string');
+      if (chave === 'emails_recebem_tudo' && Array.isArray(valor)) {
+        cfg.emails_recebem_tudo = valor.filter((e): e is string => typeof e === 'string');
+        temRecebemTudo = true;
+      } else if (chave === 'emails_padrao' && Array.isArray(valor) && !temRecebemTudo) {
+        // chave antiga (antes da migration contas_envio)
+        cfg.emails_recebem_tudo = valor.filter((e): e is string => typeof e === 'string');
       } else if (chave === 'assunto_prefixo' && typeof valor === 'string') {
         cfg.assunto_prefixo = valor;
       } else if (chave === 'notificar_sem_novidades') {
@@ -179,29 +190,122 @@ export class RepositorioSupabase implements Repositorio {
     exigir(await this.db.from('monitores').update(dados).eq('id', id), 'Falha ao atualizar monitor');
   }
 
-  async listarPendentes(limite: number): Promise<ComunicacaoPendente[]> {
-    const linhas = exigir(
-      await this.db
-        .from('comunicacoes')
-        .select(`*, monitor_comunicacoes(monitores(id, nome, emails, ${COLUNAS_FILTROS}))`)
-        .is('notificada_em', null)
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-        .limit(limite),
-      'Falha ao listar comunicações pendentes de notificação',
-    ) as Array<Record<string, unknown>>;
+  async marcarEnvioAgendado(id: number, quando: string): Promise<void> {
+    exigir(
+      await this.db.from('monitores').update({ ultimo_envio_agendado: quando }).eq('id', id),
+      'Falha ao gravar o último envio agendado do monitor',
+    );
+  }
 
-    return linhas.map((l) => {
-      const vinculos = (l.monitor_comunicacoes ?? []) as Array<{ monitores: MonitorVinculado | null }>;
+  async listarPendentes(limite: number, monitorIds?: number[]): Promise<ComunicacaoPendente[]> {
+    const montar = (l: Record<string, unknown>, monitores: MonitorVinculado[]): ComunicacaoPendente => {
       const resto: Record<string, unknown> = { ...l };
       delete resto.monitor_comunicacoes;
       return {
         ...(resto as unknown as ComunicacaoPendente),
         destinatarios: (resto.destinatarios ?? []) as ComunicacaoPendente['destinatarios'],
         advogados: (resto.advogados ?? []) as ComunicacaoPendente['advogados'],
-        monitores: vinculos.map((v) => v.monitores).filter((m): m is NonNullable<typeof m> => !!m),
+        monitores,
       };
-    });
+    };
+    const extrair = (v: unknown): MonitorVinculado[] =>
+      ((v ?? []) as Array<{ monitores: MonitorVinculado | null }>)
+        .map((x) => x.monitores)
+        .filter((m): m is MonitorVinculado => !!m);
+
+    if (!monitorIds) {
+      const linhas = exigir(
+        await this.db
+          .from('comunicacoes')
+          .select(`*, monitor_comunicacoes(monitores(${COLUNAS_MONITOR_VINCULADO}))`)
+          .is('notificada_em', null)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .limit(limite),
+        'Falha ao listar comunicações pendentes de notificação',
+      ) as Array<Record<string, unknown>>;
+      return linhas.map((l) => montar(l, extrair(l.monitor_comunicacoes)));
+    }
+
+    const ids = [...new Set(monitorIds)];
+    if (ids.length === 0) return [];
+
+    // 1) Pendentes vinculadas a pelo menos um dos monitores (o !inner filtra as comunicações;
+    //    o embed filtrado não serve para destinatários, por isso o passo 2).
+    const linhas = exigir(
+      await this.db
+        .from('comunicacoes')
+        .select('*, monitor_comunicacoes!inner(monitor_id)')
+        .is('notificada_em', null)
+        .in('monitor_comunicacoes.monitor_id', ids)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(limite),
+      'Falha ao listar comunicações pendentes de notificação',
+    ) as Array<Record<string, unknown>>;
+    if (linhas.length === 0) return [];
+
+    // 2) TODOS os monitores vinculados a essas comunicações (destinatários de cada uma).
+    const porComunicacao = new Map<number, MonitorVinculado[]>();
+    for (const sub of lotes(linhas.map((l) => Number(l.id)), 150)) {
+      const vinculos = exigir(
+        await this.db
+          .from('monitor_comunicacoes')
+          .select(`comunicacao_id, monitores(${COLUNAS_MONITOR_VINCULADO})`)
+          .in('comunicacao_id', sub),
+        'Falha ao carregar os monitores das comunicações pendentes',
+      ) as unknown as Array<{ comunicacao_id: number; monitores: MonitorVinculado | MonitorVinculado[] | null }>;
+      for (const v of vinculos) {
+        // muitos-para-um: o PostgREST devolve um objeto (aceita lista por segurança)
+        const ms = Array.isArray(v.monitores) ? v.monitores : v.monitores ? [v.monitores] : [];
+        if (!ms.length) continue;
+        const cid = Number(v.comunicacao_id);
+        const lista = porComunicacao.get(cid) ?? [];
+        lista.push(...ms);
+        porComunicacao.set(cid, lista);
+      }
+    }
+    return linhas.map((l) => montar(l, (porComunicacao.get(Number(l.id)) ?? []).sort((a, b) => a.id - b.id)));
+  }
+
+  async contarPendentesOrfas(): Promise<number> {
+    // anti-join do PostgREST: embed !left + filtro "is null" no recurso embutido
+    const r = await this.db
+      .from('comunicacoes')
+      .select('id, monitor_comunicacoes!left(monitor_id)', { count: 'exact', head: true })
+      .is('notificada_em', null)
+      .is('monitor_comunicacoes', null);
+    exigir(r, 'Falha ao contar comunicações pendentes sem monitor');
+    return r.count ?? 0;
+  }
+
+  async enviosRegistrados(comunicacaoIds: number[]): Promise<Map<number, Set<string>>> {
+    const mapa = new Map<number, Set<string>>();
+    for (const sub of lotes([...new Set(comunicacaoIds)], 150)) {
+      const linhas = exigir(
+        await this.db.from('envios').select('comunicacao_id, destinatario').in('comunicacao_id', sub),
+        'Falha ao consultar envios já feitos',
+      ) as Array<{ comunicacao_id: number; destinatario: string }>;
+      for (const l of linhas) {
+        const cid = Number(l.comunicacao_id);
+        const set = mapa.get(cid) ?? new Set<string>();
+        set.add(String(l.destinatario).toLowerCase());
+        mapa.set(cid, set);
+      }
+    }
+    return mapa;
+  }
+
+  async registrarEnvios(linhas: RegistroEnvio[], quando: string): Promise<void> {
+    for (const lote of lotes(linhas, 500)) {
+      exigir(
+        await this.db.from('envios').upsert(
+          lote.map((l) => ({ ...l, enviado_em: quando })),
+          { onConflict: 'comunicacao_id,destinatario', ignoreDuplicates: true },
+        ),
+        'Falha ao registrar envios',
+      );
+    }
   }
 
   async marcarNotificadas(ids: number[], quando: string): Promise<void> {

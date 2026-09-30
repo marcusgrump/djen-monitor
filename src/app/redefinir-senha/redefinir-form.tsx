@@ -67,7 +67,7 @@ export function RedefinirSenhaForm() {
   if (carregando) return <CarregandoTelaCheia />;
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/40 px-4 py-10">
+    <div className="flex min-h-svh items-center justify-center bg-background px-4 py-10">
       <div className="w-full max-w-sm space-y-6">
         <Logo className="justify-center" />
         {!sessao ? (

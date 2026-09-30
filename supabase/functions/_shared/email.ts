@@ -25,6 +25,18 @@ export interface TransporteEmail {
   fechar?(): Promise<void> | void;
 }
 
+/** Conta remetente disponível numa execução (um transporte por conta, reutilizado na execução). */
+export interface RemetenteEmail {
+  /** public.contas_envio.id; null = conta virtual (Secrets GMAIL_* ou teste local). */
+  contaId: number | null;
+  /** Endereço do remetente (minúsculo). */
+  email: string;
+  padrao: boolean;
+  /** 'painel' = contas_envio + Vault; 'secrets' = GMAIL_* da função. */
+  origem: 'painel' | 'secrets';
+  transporte: TransporteEmail;
+}
+
 // ---------------------------------------------------------------------------
 // Conteúdo
 // ---------------------------------------------------------------------------
@@ -59,11 +71,11 @@ const POLOS: Record<string, string> = {
 
 function corDoTipo(tipo: string | null): string {
   const t = (tipo ?? '').toLowerCase();
-  if (t.startsWith('cita')) return '#dc2626';
-  if (t.startsWith('intima')) return '#2563eb';
+  if (t.startsWith('cita')) return '#e80031';
+  if (t.startsWith('intima')) return '#005efc';
   if (t.startsWith('edital')) return '#d97706';
   if (t.startsWith('pauta')) return '#7c3aed';
-  return '#64748b';
+  return '#6d6e71';
 }
 
 function partesAgrupadas(c: ComunicacaoPendente): Array<{ rotulo: string; nomes: string[] }> {
@@ -110,14 +122,17 @@ function processoDe(c: ComunicacaoPendente): string {
   return c.numero_processo_mascara ?? c.numero_processo ?? 'Processo não informado';
 }
 
-// Paleta / estilos inline reutilizados
-const FONTE = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;";
-const ROTULO = 'color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:.04em;';
+// Paleta do painel (inspirada no comunica.pje.jus.br, sem marcas oficiais): cabeçalho #0a243b,
+// botão primário #005efc, destaques #365ea9, fundo #f5f7fa, bordas #dce4ec, texto #212121,
+// secundário #6d6e71, erro #e80031. Fonte do projeto: Geist (sem webfont no e-mail — o Gmail
+// não carrega; se a Geist não estiver instalada, vale a pilha de fallback).
+const FONTE = "font-family:Geist,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;";
+const ROTULO = 'color:#6d6e71;font-size:12px;text-transform:uppercase;letter-spacing:.04em;';
 
 function botao(href: string, rotulo: string, primario: boolean): string {
   const estilo = primario
-    ? 'background:#1e3a8a;color:#ffffff;border:1px solid #1e3a8a;'
-    : 'background:#ffffff;color:#1e3a8a;border:1px solid #1e3a8a;';
+    ? 'background:#005efc;color:#ffffff;border:1px solid #005efc;'
+    : 'background:#ffffff;color:#005efc;border:1px solid #005efc;';
   return `<a href="${escaparHtml(href)}" target="_blank" style="${estilo}display:inline-block;padding:9px 16px;margin:4px 8px 0 0;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">${escaparHtml(rotulo)}</a>`;
 }
 
@@ -135,7 +150,7 @@ function cartaoHtml(c: ComunicacaoPendente): string {
     .map(
       (b, i) =>
         `<span style="display:inline-block;padding:2px 8px;margin:0 6px 4px 0;border-radius:999px;font-size:12px;font-weight:600;${
-          i === 0 ? 'background:#1e3a8a;color:#ffffff;' : `background:#f1f5f9;color:${cor};`
+          i === 0 ? 'background:#365ea9;color:#ffffff;' : `background:#f5f7fa;color:${cor};`
         }">${escaparHtml(b)}</span>`,
     )
     .join('');
@@ -151,24 +166,24 @@ function cartaoHtml(c: ComunicacaoPendente): string {
 
   return `
 <tr><td style="padding:0 0 16px 0;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;background:#ffffff;border:1px solid #e2e8f0;border-left:4px solid ${cor};border-radius:8px;">
-<tr><td style="padding:16px 18px;${FONTE}color:#0f172a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;background:#ffffff;border:1px solid #dce4ec;border-left:4px solid ${cor};border-radius:8px;">
+<tr><td style="padding:16px 18px;${FONTE}color:#212121;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
 <td style="vertical-align:top;">${badges}</td>
-<td style="vertical-align:top;text-align:right;white-space:nowrap;color:#475569;font-size:13px;">${escaparHtml(formatarDataBr(c.data_disponibilizacao))}</td>
+<td style="vertical-align:top;text-align:right;white-space:nowrap;color:#6d6e71;font-size:13px;">${escaparHtml(formatarDataBr(c.data_disponibilizacao))}</td>
 </tr></table>
-<div style="font-size:17px;font-weight:700;margin:6px 0 2px 0;color:#0f172a;word-break:break-word;">${escaparHtml(processoDe(c))}</div>
-${c.nome_orgao ? `<div style="font-size:14px;color:#475569;margin:0 0 8px 0;">${escaparHtml(c.nome_orgao)}</div>` : '<div style="height:8px;line-height:8px;">&nbsp;</div>'}
+<div style="font-size:17px;font-weight:700;margin:6px 0 2px 0;color:#365ea9;word-break:break-word;font-variant-numeric:tabular-nums;">${escaparHtml(processoDe(c))}</div>
+${c.nome_orgao ? `<div style="font-size:14px;color:#6d6e71;margin:0 0 8px 0;">${escaparHtml(c.nome_orgao)}</div>` : '<div style="height:8px;line-height:8px;">&nbsp;</div>'}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;line-height:1.45;">${linhas.join('')}</table>
 ${
   resumo
-    ? `<div style="margin:12px 0 4px 0;padding:10px 12px;background:#f8fafc;border-radius:6px;color:#334155;font-size:13px;line-height:1.55;word-break:break-word;">${escaparHtml(resumo)}</div>`
+    ? `<div style="margin:12px 0 4px 0;padding:10px 12px;background:#f5f7fa;border-radius:6px;color:#212121;font-size:13px;line-height:1.55;word-break:break-word;">${escaparHtml(resumo)}</div>`
     : ''
 }
 ${botoes ? `<div style="margin-top:8px;">${botoes}</div>` : ''}
 ${
   monitores.length
-    ? `<div style="margin-top:10px;color:#94a3b8;font-size:12px;">Encontrada pelo monitor: ${escaparHtml(monitores.join('; '))}</div>`
+    ? `<div style="margin-top:10px;color:#6d6e71;font-size:12px;">Encontrada pelo monitor: ${escaparHtml(monitores.join('; '))}</div>`
     : ''
 }
 </td></tr></table>
@@ -176,7 +191,7 @@ ${
 }
 
 function linhaInfo(rotulo: string, valorHtml: string): string {
-  return `<tr><td style="padding:2px 0;vertical-align:top;"><span style="${ROTULO}">${escaparHtml(rotulo)}</span><br><span style="color:#0f172a;">${valorHtml}</span></td></tr>`;
+  return `<tr><td style="padding:2px 0;vertical-align:top;"><span style="${ROTULO}">${escaparHtml(rotulo)}</span><br><span style="color:#212121;">${valorHtml}</span></td></tr>`;
 }
 
 function resumoPorTribunal(cs: ComunicacaoPendente[]): string {
@@ -200,22 +215,22 @@ function ordenar(cs: ComunicacaoPendente[]): ComunicacaoPendente[] {
 function envelopeHtml(titulo: string, subtitulo: string, corpo: string, preheader: string): string {
   return `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><title>${escaparHtml(titulo)}</title></head>
-<body style="margin:0;padding:0;background:#f1f5f9;">
+<body style="margin:0;padding:0;background:#f5f7fa;">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escaparHtml(preheader)}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f5f7fa;">
 <tr><td align="center" style="padding:24px 12px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;">
-<tr><td style="background:#1e3a8a;border-radius:10px 10px 0 0;padding:20px 22px;${FONTE}">
-<div style="color:#bfdbfe;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;">DJEN Monitor</div>
+<tr><td style="background:#0a243b;border-radius:10px 10px 0 0;padding:20px 22px;${FONTE}">
+<div style="color:#ffffff;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;">DJEN Monitor</div>
 <div style="color:#ffffff;font-size:22px;font-weight:700;margin-top:4px;">${escaparHtml(titulo)}</div>
-<div style="color:#dbeafe;font-size:14px;margin-top:4px;">${escaparHtml(subtitulo)}</div>
+<div style="color:#ffffff;font-size:14px;margin-top:4px;">${escaparHtml(subtitulo)}</div>
 </td></tr>
-<tr><td style="background:#f1f5f9;padding:16px 0 0 0;">
+<tr><td style="background:#f5f7fa;padding:16px 0 0 0;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${corpo}</table>
 </td></tr>
-<tr><td style="padding:8px 4px 0 4px;${FONTE}color:#94a3b8;font-size:12px;line-height:1.5;text-align:center;">
-Mensagem automática do DJEN Monitor com base no Diário de Justiça Eletrônico Nacional (CNJ).<br>
-Este e-mail é um resumo: confira sempre o inteiro teor e a certidão da comunicação.
+<tr><td style="padding:8px 4px 0 4px;${FONTE}color:#6d6e71;font-size:12px;line-height:1.5;text-align:center;">
+Mensagem automática do DJEN Monitor. Este e-mail é um resumo: confira sempre o inteiro teor e a certidão da comunicação.<br>
+Sistema independente — não é um serviço oficial do CNJ. Fonte: API pública do DJEN.
 </td></tr>
 </table>
 </td></tr></table>
@@ -285,8 +300,8 @@ function montarTexto(lista: ComunicacaoPendente[], titulo: string, subtitulo: st
     blocos.join('\n\n'),
     '',
     '--',
-    'Mensagem automática do DJEN Monitor com base no Diário de Justiça Eletrônico Nacional (CNJ).',
-    'Este e-mail é um resumo: confira sempre o inteiro teor e a certidão da comunicação.',
+    'Mensagem automática do DJEN Monitor. Este e-mail é um resumo: confira sempre o inteiro teor e a certidão da comunicação.',
+    'Sistema independente — não é um serviço oficial do CNJ. Fonte: API pública do DJEN.',
   ].join('\n');
 }
 
@@ -298,7 +313,7 @@ export function montarEmailTeste(op: { remetente: string; quando: string }): {
 } {
   const assunto = `[DJEN] Teste de envio — ${op.quando}`;
   const msg = `Este é um e-mail de teste do DJEN Monitor, enviado em ${op.quando} (horário de Brasília) pela conta ${op.remetente}. Se você o recebeu, as notificações por e-mail estão funcionando.`;
-  const corpo = `<tr><td style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:18px;${FONTE}color:#334155;font-size:15px;line-height:1.5;">${escaparHtml(msg)}</td></tr>`;
+  const corpo = `<tr><td style="background:#ffffff;border:1px solid #dce4ec;border-radius:8px;padding:18px;${FONTE}color:#212121;font-size:15px;line-height:1.5;">${escaparHtml(msg)}</td></tr>`;
   return {
     assunto,
     html: envelopeHtml('Teste de envio', op.quando, corpo, msg),
@@ -315,7 +330,7 @@ export function montarEmailSemNovidades(op: { prefixo: string; data: string; mon
   const p = op.prefixo.trim();
   const assunto = `${p ? p + ' ' : ''}Nenhuma comunicação nova — ${formatarDataBr(op.data)}`;
   const msg = `Nenhuma comunicação nova foi encontrada hoje para os ${op.monitores} monitor(es) ativo(s).`;
-  const corpo = `<tr><td style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:18px;${FONTE}color:#334155;font-size:15px;">${escaparHtml(msg)}</td></tr>`;
+  const corpo = `<tr><td style="background:#ffffff;border:1px solid #dce4ec;border-radius:8px;padding:18px;${FONTE}color:#212121;font-size:15px;">${escaparHtml(msg)}</td></tr>`;
   return {
     assunto,
     html: envelopeHtml('Sem novidades', formatarDataBr(op.data), corpo, msg),

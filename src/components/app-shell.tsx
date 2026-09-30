@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import {
   ActivityIcon,
   ChevronsUpDownIcon,
@@ -11,27 +10,19 @@ import {
   LayoutDashboardIcon,
   LogOutIcon,
   MenuIcon,
-  MonitorIcon,
-  MoonIcon,
   RadarIcon,
   SearchIcon,
   SettingsIcon,
-  SunIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth-provider";
-import { CarregandoTelaCheia, Logo, SupabaseNaoConfigurado } from "@/components/comum";
+import { AvisoIndependente, CarregandoTelaCheia, Logo, SupabaseNaoConfigurado } from "@/components/comum";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -63,8 +54,8 @@ function NavLinks({ aoNavegar }: { aoNavegar?: () => void }) {
             onClick={aoNavegar}
             aria-current={ativo ? "page" : undefined}
             className={cn(
-              "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-              ativo && "bg-muted text-foreground",
+              "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-accent-foreground",
+              ativo && "bg-accent text-primary hover:text-primary",
             )}
           >
             <Icone className="size-4 shrink-0" aria-hidden />
@@ -78,7 +69,6 @@ function NavLinks({ aoNavegar }: { aoNavegar?: () => void }) {
 
 function MenuUsuario({ lado = "top" }: { lado?: "top" | "bottom" }) {
   const { sessao, sair } = useAuth();
-  const { theme, setTheme } = useTheme();
   const router = useRouter();
   const email = sessao?.user.email ?? "";
 
@@ -96,7 +86,7 @@ function MenuUsuario({ lado = "top" }: { lado?: "top" | "bottom" }) {
         }
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold uppercase">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-primary uppercase">
             {email.slice(0, 1) || "?"}
           </span>
           <span className="truncate text-left text-sm">{email || "Conta"}</span>
@@ -104,21 +94,6 @@ function MenuUsuario({ lado = "top" }: { lado?: "top" | "bottom" }) {
         <ChevronsUpDownIcon className="size-4 text-muted-foreground" aria-hidden />
       </DropdownMenuTrigger>
       <DropdownMenuContent side={lado} align="start" className="min-w-56">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Tema</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={theme ?? "system"} onValueChange={(v) => setTheme(String(v))}>
-            <DropdownMenuRadioItem value="system">
-              <MonitorIcon /> Seguir o sistema
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="light">
-              <SunIcon /> Claro
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="dark">
-              <MoonIcon /> Escuro
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={aoSair}>
           <LogOutIcon /> Sair
         </DropdownMenuItem>
@@ -154,25 +129,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-svh">
       {/* Barra lateral (desktop) */}
       <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r bg-sidebar md:flex">
-        <div className="px-4 pt-4 pb-3">
+        <div className="bg-brand px-4 py-4">
           <Link href="/" aria-label="Visão geral">
-            <Logo />
+            <Logo escuro />
           </Link>
         </div>
-        <div className="flex-1 overflow-y-auto px-3 py-2">
+        <div className="flex-1 overflow-y-auto px-3 py-3">
           <NavLinks />
         </div>
         <div className="border-t p-2">
           <MenuUsuario />
         </div>
+        <div className="border-t px-4 py-3">
+          <AvisoIndependente />
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Topo (mobile) */}
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/90 px-4 backdrop-blur md:hidden">
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 bg-brand px-4 text-brand-foreground md:hidden">
           <Button
             variant="ghost"
             size="icon"
+            className="text-brand-foreground hover:bg-white/10 hover:text-brand-foreground"
             aria-label="Abrir menu"
             onClick={() => setMenuAberto(true)}
           >
@@ -188,14 +167,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <SheetContent side="left" className="w-72 gap-0 p-0">
             <SheetTitle className="sr-only">Menu</SheetTitle>
             <SheetDescription className="sr-only">Navegação do painel</SheetDescription>
-            <div className="px-4 pt-4 pb-3">
-              <Logo />
+            <div className="bg-brand px-4 py-4">
+              <Logo escuro />
             </div>
-            <div className="flex-1 overflow-y-auto px-3 py-2">
+            <div className="flex-1 overflow-y-auto px-3 py-3">
               <NavLinks aoNavegar={() => setMenuAberto(false)} />
             </div>
             <div className="border-t p-2">
               <MenuUsuario />
+            </div>
+            <div className="border-t px-4 py-3">
+              <AvisoIndependente />
             </div>
           </SheetContent>
         </Sheet>

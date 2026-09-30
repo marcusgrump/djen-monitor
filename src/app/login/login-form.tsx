@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeftIcon, Loader2Icon, MailCheckIcon } from "lucide-react";
 import { z } from "zod";
 import { useAuth } from "@/components/auth-provider";
-import { Logo, SupabaseNaoConfigurado } from "@/components/comum";
+import { AvisoIndependente, Logo, SupabaseNaoConfigurado } from "@/components/comum";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,13 +76,14 @@ export function LoginForm() {
   const desabilitado = !configurado || enviando || carregando;
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/40 px-4 py-10">
-      <div className="w-full max-w-sm space-y-6">
-        <Logo className="justify-center" />
-
+    <div className="flex min-h-svh items-center justify-center bg-background px-4 py-10">
+      <div className="w-full max-w-sm space-y-4">
         {!configurado && <SupabaseNaoConfigurado />}
 
-        <Card>
+        <Card className="gap-4 overflow-hidden py-0 pb-4">
+          <div className="bg-brand px-6 py-5">
+            <Logo escuro />
+          </div>
           <CardHeader>
             <CardTitle>{modo === "entrar" ? "Entrar no painel" : "Recuperar senha"}</CardTitle>
             <CardDescription>
@@ -170,6 +171,7 @@ export function LoginForm() {
           Acesso restrito. Não há cadastro público — contas são criadas pelo administrador no
           Supabase.
         </p>
+        <AvisoIndependente className="text-center" />
       </div>
     </div>
   );

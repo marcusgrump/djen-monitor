@@ -14,15 +14,15 @@ export const MEIOS_DJEN: { value: MeioDjen; label: string; curto: string }[] = [
 export const STATUS_EXECUCAO_INFO: Record<StatusExecucao, { rotulo: string; classe: string }> = {
   executando: {
     rotulo: "Executando",
-    classe: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    classe: "bg-accent text-primary",
   },
   sucesso: {
     rotulo: "Sucesso",
-    classe: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    classe: "bg-success/10 text-success-text",
   },
   parcial: {
     rotulo: "Parcial",
-    classe: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
+    classe: "bg-warning/20 text-warning-text",
   },
   erro: {
     rotulo: "Erro",

@@ -28,7 +28,7 @@ import {
   processoExibicao,
   tempoRelativo,
 } from "@/lib/format";
-import { statusGmail } from "@/lib/gmail";
+import { listarContas } from "@/lib/contas-envio";
 import { erroDaResposta, supabase } from "@/lib/supabase";
 import type { Comunicacao, SyncExecucao } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -91,19 +91,21 @@ async function carregarPainel(): Promise<Painel> {
 }
 
 /**
- * Nº de comunicações ainda não notificadas quando o Gmail não está configurado pelo painel;
- * null quando não há o que avisar (ou quando não dá para saber — ex.: RPC ainda não instalada).
+ * Nº de comunicações aguardando envio (com pelo menos um monitor vinculado — as sem vínculo não são
+ * enviadas) quando não há nenhuma conta de envio ativa com Senha de App;
+ * null quando não há o que avisar (ou quando não dá para saber — ex.: atualização do servidor pendente).
  */
-async function carregarAvisoGmail(): Promise<number | null> {
+async function carregarAvisoEnvio(): Promise<number | null> {
   try {
-    const status = await statusGmail();
-    if (status.senha_configurada) return null;
-    const r = await supabase()
+    const r = await listarContas();
+    if (r.pendente) return null;
+    if (r.contas.some((c) => c.ativo && c.senha_configurada)) return null;
+    const q = await supabase()
       .from("comunicacoes")
-      .select("id", { count: "exact", head: true })
+      .select("id, monitor_comunicacoes!inner(monitor_id)", { count: "exact", head: true })
       .is("notificada_em", null);
-    if (r.error) return null;
-    return r.count ? r.count : null;
+    if (q.error) return null;
+    return q.count ? q.count : null;
   } catch {
     return null;
   }
@@ -156,7 +158,7 @@ export function VisaoGeral() {
   const { dados, erro, carregandoInicial, carregando, recarregar } = useQuery("painel", carregarPainel);
   const { executando, executar } = useSincronizar(recarregar);
   const agora = useAgora();
-  const avisoGmail = useQuery("painel:aviso-gmail", carregarAvisoGmail);
+  const avisoEnvio = useQuery("painel:aviso-envio", carregarAvisoEnvio);
 
   const ultima = dados?.execucoes[0];
   const emAndamento = ultima?.status === "executando";
@@ -182,17 +184,17 @@ export function VisaoGeral() {
 
       {erro && <ErroCarregamento mensagem={erro} aoTentarNovamente={recarregar} />}
 
-      {!!avisoGmail.dados && (
-        <Alert className="border-amber-500/50">
-          <MailXIcon className="text-amber-600 dark:text-amber-400" />
+      {!!avisoEnvio.dados && (
+        <Alert className="border-warning/50">
+          <MailXIcon className="text-warning-text" />
           <AlertTitle>
-            Há {pluralizar(avisoGmail.dados, "comunicação aguardando envio", "comunicações aguardando envio")}
+            Há {pluralizar(avisoEnvio.dados, "comunicação aguardando envio", "comunicações aguardando envio")}
           </AlertTitle>
           <AlertDescription>
             <p>
-              O e-mail de envio não está configurado.{" "}
+              Não há conta de envio ativa com Senha de App.{" "}
               <Link href="/configuracoes/" className="font-medium text-foreground underline underline-offset-2">
-                Configure o Gmail em Configurações
+                Configure uma conta de envio em Configurações
               </Link>{" "}
               para receber os avisos.
             </p>
@@ -287,13 +289,13 @@ export function VisaoGeral() {
                       <span
                         className={cn(
                           "mt-1.5 size-2 shrink-0 rounded-full",
-                          c.lida ? "bg-transparent" : "bg-sky-500",
+                          c.lida ? "bg-transparent" : "bg-primary",
                         )}
                         aria-label={c.lida ? undefined : "Não lida"}
                       />
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className={cn("font-mono text-xs sm:text-sm", !c.lida && "font-semibold")}>
+                          <span className={cn("tabular-nums text-xs sm:text-sm", !c.lida && "font-semibold")}>
                             {processoExibicao(c)}
                           </span>
                           {c.sigla_tribunal && <Badge variant="outline">{c.sigla_tribunal}</Badge>}

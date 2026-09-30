@@ -67,3 +67,33 @@ export function dataHoraBrasil(instante: Date = new Date()): string {
 export function inicioDoDiaBrasilIso(instante: Date = new Date()): string {
   return `${dataBrasil(instante)}T03:00:00.000Z`;
 }
+
+/** Nomes dos dias da semana (0 = domingo … 6 = sábado). */
+export const NOMES_DIAS_SEMANA = [
+  'domingo',
+  'segunda-feira',
+  'terça-feira',
+  'quarta-feira',
+  'quinta-feira',
+  'sexta-feira',
+  'sábado',
+] as const;
+
+/** Dia da semana (0 = domingo … 6 = sábado) de uma data civil 'YYYY-MM-DD'. */
+export function diaSemanaDaData(dataIso: string): number {
+  const [a, m, d] = dataIso.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, d)).getUTCDay();
+}
+
+/** Dia da semana (0 = domingo … 6 = sábado) do instante, no fuso de São Paulo. */
+export function diaSemanaBrasil(instante: Date = new Date()): number {
+  return diaSemanaDaData(dataBrasil(instante));
+}
+
+/**
+ * Instante correspondente a 'YYYY-MM-DD' às 'HH:MM' no horário de Brasília
+ * (SP é UTC-3 fixo desde 2019, sem horário de verão).
+ */
+export function instanteBrasil(dataIso: string, horaMinuto: string): Date {
+  return new Date(`${dataIso}T${horaMinuto}:00.000-03:00`);
+}

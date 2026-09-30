@@ -217,7 +217,7 @@ function SecaoMeta({ meta, nomes }: { meta: MetaExecucao; nomes: Map<string, str
         )}
       </dl>
       {(avisos.length > 0 || falhas.length > 0) && (
-        <ul className="space-y-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+        <ul className="space-y-1.5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
           {avisos.map((a, i) => (
             <li key={`a${i}`} className="break-words">
               {a}

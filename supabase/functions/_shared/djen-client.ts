@@ -11,9 +11,9 @@
 //
 // Portável: usa apenas fetch/AbortSignal/URLSearchParams (Deno e Node >= 18).
 
-import { diasEntre, somarDias } from './datas.ts';
+import { diasEntre } from './datas.ts';
 import { parametrosDoMonitor } from './mapeamento.ts';
-import type { FiltrosMonitor, ItemDjen, Monitor, ParametrosConsulta, RespostaDjen } from './tipos.ts';
+import type { FiltrosMonitor, ItemDjen, ParametrosConsulta, RespostaDjen } from './tipos.ts';
 
 // Reexportados por compatibilidade (a conversão monitor → parâmetros fica em mapeamento.ts).
 export { parametrosDoMonitor };
@@ -327,14 +327,14 @@ export class ClienteDjen {
   }
 
   /**
-   * Busca as comunicações de um monitor no intervalo [hoje - dias_retroativos, hoje],
-   * com todos os filtros preenchidos do monitor na mesma consulta.
+   * Busca as comunicações de um monitor no intervalo [inicio, fim] (ver periodoDeBusca em
+   * agendamento.ts), com todos os filtros preenchidos do monitor na mesma consulta.
    */
   async buscarMonitor(
-    monitor: Partial<FiltrosMonitor> & Pick<Monitor, 'dias_retroativos'>,
-    hoje: string,
+    monitor: Partial<FiltrosMonitor>,
+    intervalo: { inicio: string; fim: string },
   ): Promise<ResultadoBusca> {
-    const { inicio, fim } = intervaloDoMonitor(monitor.dias_retroativos, hoje);
+    const { inicio, fim } = intervalo;
     let params: ParametrosConsulta;
     try {
       params = parametrosDoMonitor(monitor);
@@ -352,11 +352,6 @@ export class ClienteDjen {
     }
     return this.buscar(params, inicio, fim);
   }
-}
-
-export function intervaloDoMonitor(diasRetroativos: number, hoje: string): { inicio: string; fim: string } {
-  const dias = Math.max(0, Math.min(30, Math.floor(Number(diasRetroativos) || 0)));
-  return { inicio: somarDias(hoje, -dias), fim: hoje };
 }
 
 function adicionar(acc: Map<number, ItemDjen>, itens: ItemDjen[]): void {

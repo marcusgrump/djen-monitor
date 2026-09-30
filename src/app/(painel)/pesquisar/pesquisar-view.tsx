@@ -418,7 +418,7 @@ function IndicadorLimite({
         render={
           <Badge
             variant="outline"
-            className={cn("h-7 gap-1.5 px-2.5", baixo && "border-amber-500/50 text-amber-800 dark:text-amber-300")}
+            className={cn("h-7 gap-1.5 px-2.5", baixo && "border-warning/50 text-warning-text")}
           />
         }
       >

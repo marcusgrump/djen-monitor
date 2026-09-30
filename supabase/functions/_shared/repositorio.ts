@@ -13,6 +13,7 @@ import type {
   MonitorVinculado,
   NovaComunicacao,
   OrigemSync,
+  RegistroEnvio,
   StatusSync,
 } from './tipos.ts';
 import { CONFIGURACOES_PADRAO } from './tipos.ts';
@@ -45,9 +46,21 @@ export interface Repositorio {
   /** INSERT em monitor_comunicacoes ignorando duplicados. */
   vincularMonitor(monitorId: number, comunicacaoIds: number[]): Promise<void>;
   atualizarMonitor(id: number, dados: { ultima_sincronizacao?: string; ultimo_erro: string | null }): Promise<void>;
+  /** Grava monitores.ultimo_envio_agendado (controle do agendamento por horário). */
+  marcarEnvioAgendado(id: number, quando: string): Promise<void>;
 
-  /** Comunicações com notificada_em IS NULL (mais antigas primeiro), com os monitores vinculados. */
-  listarPendentes(limite: number): Promise<ComunicacaoPendente[]>;
+  /**
+   * Comunicações com notificada_em IS NULL (mais antigas primeiro), com TODOS os monitores
+   * vinculados (para montar os destinatários). Com `monitorIds`, só as vinculadas a pelo menos
+   * um desses monitores (lista vazia => nenhuma).
+   */
+  listarPendentes(limite: number, monitorIds?: number[]): Promise<ComunicacaoPendente[]>;
+  /** Quantas comunicações pendentes (notificada_em IS NULL) não têm nenhum monitor vinculado. */
+  contarPendentesOrfas(): Promise<number>;
+  /** Destinatários (minúsculos) que já receberam cada comunicação (public.envios). */
+  enviosRegistrados(comunicacaoIds: number[]): Promise<Map<number, Set<string>>>;
+  /** INSERT em public.envios ignorando duplicados (comunicacao_id, destinatario). */
+  registrarEnvios(linhas: RegistroEnvio[], quando: string): Promise<void>;
   /** UPDATE comunicacoes SET notificada_em = quando WHERE id IN (...) AND notificada_em IS NULL */
   marcarNotificadas(ids: number[], quando: string): Promise<void>;
 }
@@ -68,6 +81,7 @@ export class RepositorioMemoria implements Repositorio {
   monitores: Monitor[] = [];
   comunicacoes: Comunicacao[] = [];
   vinculos: Array<{ monitor_id: number; comunicacao_id: number; created_at: string }> = [];
+  envios: Array<RegistroEnvio & { enviado_em: string }> = [];
   execucoes: ExecucaoMemoria[] = [];
   configuracoes: Configuracoes;
   private seqComunicacao = 1;
@@ -176,9 +190,19 @@ export class RepositorioMemoria implements Repositorio {
     return Promise.resolve();
   }
 
-  listarPendentes(limite: number): Promise<ComunicacaoPendente[]> {
+  marcarEnvioAgendado(id: number, quando: string): Promise<void> {
+    const m = this.monitores.find((x) => x.id === id);
+    if (m) m.ultimo_envio_agendado = quando;
+    return Promise.resolve();
+  }
+
+  listarPendentes(limite: number, monitorIds?: number[]): Promise<ComunicacaoPendente[]> {
+    const alvo = monitorIds ? new Set(monitorIds) : null;
     const pend = this.comunicacoes
       .filter((c) => c.notificada_em === null)
+      .filter(
+        (c) => !alvo || this.vinculos.some((v) => v.comunicacao_id === c.id && alvo.has(v.monitor_id)),
+      )
       .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
       .slice(0, limite)
       .map((c) => {
@@ -189,6 +213,8 @@ export class RepositorioMemoria implements Repositorio {
             id: m.id,
             nome: m.nome,
             emails: m.emails,
+            ativo: m.ativo,
+            conta_envio_id: m.conta_envio_id ?? null,
             texto: m.texto,
             sigla_tribunal: m.sigla_tribunal,
             orgao_id: m.orgao_id,
@@ -203,6 +229,36 @@ export class RepositorioMemoria implements Repositorio {
         return { ...c, monitores };
       });
     return Promise.resolve(pend);
+  }
+
+  contarPendentesOrfas(): Promise<number> {
+    return Promise.resolve(
+      this.comunicacoes.filter(
+        (c) => c.notificada_em === null && !this.vinculos.some((v) => v.comunicacao_id === c.id),
+      ).length,
+    );
+  }
+
+  enviosRegistrados(comunicacaoIds: number[]): Promise<Map<number, Set<string>>> {
+    const alvo = new Set(comunicacaoIds);
+    const mapa = new Map<number, Set<string>>();
+    for (const e of this.envios) {
+      if (!alvo.has(e.comunicacao_id)) continue;
+      const set = mapa.get(e.comunicacao_id) ?? new Set<string>();
+      set.add(e.destinatario.toLowerCase());
+      mapa.set(e.comunicacao_id, set);
+    }
+    return Promise.resolve(mapa);
+  }
+
+  registrarEnvios(linhas: RegistroEnvio[], quando: string): Promise<void> {
+    for (const l of linhas) {
+      const dest = l.destinatario.toLowerCase();
+      if (!this.envios.some((e) => e.comunicacao_id === l.comunicacao_id && e.destinatario === dest)) {
+        this.envios.push({ ...l, destinatario: dest, enviado_em: quando });
+      }
+    }
+    return Promise.resolve();
   }
 
   marcarNotificadas(ids: number[], quando: string): Promise<void> {

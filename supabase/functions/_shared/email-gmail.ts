@@ -2,8 +2,9 @@
 // Porta 465 com TLS implícito (secure: true): as Edge Functions da Supabase
 // bloqueiam conexões de saída nas portas 25 e 587.
 //
-// Credenciais: primeiro as salvas pelo painel (Supabase Vault, RPC djen_gmail_credenciais);
-// na falta delas, as variáveis GMAIL_USER, GMAIL_APP_PASSWORD, EMAIL_FROM_NAME (opcional).
+// Credenciais: as contas cadastradas no painel (tabela contas_envio + Senha de App no Vault,
+// RPC djen_contas_envio_credenciais); sem nenhuma conta, as variáveis GMAIL_USER,
+// GMAIL_APP_PASSWORD e EMAIL_FROM_NAME (opcional) viram uma conta padrão virtual.
 // No Deno, "nodemailer" é mapeado para npm:nodemailer pelo deno.json da função.
 
 import nodemailer from 'nodemailer';
@@ -75,10 +76,14 @@ function configGmailDoAmbiente(env: (nome: string) => string | undefined): Confi
   return { usuario, senhaApp, nomeRemetente: env('EMAIL_FROM_NAME')?.trim() || undefined };
 }
 
-/** De onde vieram as credenciais: 'painel' (Vault, via Configurações) ou 'secrets' (GMAIL_* da função). */
+/** De onde vieram as credenciais: 'painel' (contas_envio + Vault) ou 'secrets' (GMAIL_* da função). */
 export type OrigemCredenciais = 'painel' | 'secrets';
 
-export interface CredenciaisGmail extends ConfigGmail {
+/** Uma conta Gmail remetente com a Senha de App (nunca registrar/logar senhaApp). */
+export interface CredenciaisConta extends ConfigGmail {
+  /** public.contas_envio.id; null = conta virtual dos Secrets GMAIL_* (fallback). */
+  contaId: number | null;
+  padrao: boolean;
   origem: OrigemCredenciais;
 }
 
@@ -87,31 +92,48 @@ function textoOuNulo(v: unknown): string | null {
 }
 
 /**
- * Credenciais do Gmail: primeiro as salvas pelo painel (Vault, RPC djen_gmail_credenciais,
- * que devolve {usuario, senha_app, nome_remetente}); se ausentes/incompletas ou se a
- * leitura falhar, os Secrets GMAIL_USER / GMAIL_APP_PASSWORD / EMAIL_FROM_NAME.
+ * Contas de envio ativas com senha: RPC djen_contas_envio_credenciais (contas_envio + Vault),
+ * que devolve linhas {id, email, nome_remetente, padrao, senha_app}. Se não houver nenhuma
+ * (ou a leitura falhar), usa os Secrets GMAIL_USER / GMAIL_APP_PASSWORD / EMAIL_FROM_NAME como
+ * uma conta padrão virtual (contaId null). A primeira da lista devolvida é a padrão.
  */
-export async function resolverCredenciaisGmail(
-  lerPainel: () => Promise<unknown>,
+export async function resolverContasEnvio(
+  lerContas: () => Promise<unknown>,
   env: (nome: string) => string | undefined,
   log: (msg: string) => void = () => {},
-): Promise<CredenciaisGmail | null> {
+): Promise<CredenciaisConta[]> {
+  const contas: CredenciaisConta[] = [];
   try {
-    const d = (await lerPainel()) as Record<string, unknown> | null;
-    const usuario = textoOuNulo(d?.usuario);
-    const senhaApp = textoOuNulo(d?.senha_app);
-    if (usuario && senhaApp) {
-      return { usuario, senhaApp, nomeRemetente: textoOuNulo(d?.nome_remetente) ?? undefined, origem: 'painel' };
+    const linhas = await lerContas();
+    for (const l of Array.isArray(linhas) ? (linhas as Array<Record<string, unknown>>) : []) {
+      const id = Number(l?.id);
+      const usuario = textoOuNulo(l?.email);
+      const senhaApp = textoOuNulo(l?.senha_app);
+      if (!Number.isInteger(id) || !usuario || !senhaApp) continue;
+      contas.push({
+        contaId: id,
+        usuario: usuario.toLowerCase(),
+        senhaApp,
+        nomeRemetente: textoOuNulo(l?.nome_remetente) ?? undefined,
+        padrao: l?.padrao === true,
+        origem: 'painel',
+      });
     }
   } catch (e) {
-    log(`não foi possível ler as credenciais do Gmail salvas no painel: ${e instanceof Error ? e.message : String(e)}`);
+    log(`não foi possível ler as contas de envio: ${e instanceof Error ? e.message : String(e)}`);
   }
-  const doAmbiente = configGmailDoAmbiente(env);
-  return doAmbiente ? { ...doAmbiente, origem: 'secrets' } : null;
+  if (contas.length === 0) {
+    const doAmbiente = configGmailDoAmbiente(env);
+    if (doAmbiente) contas.push({ ...doAmbiente, contaId: null, padrao: true, origem: 'secrets' });
+  }
+  // padrão primeiro; se nenhuma ativa estiver marcada como padrão, a de menor id assume
+  contas.sort((a, b) => Number(b.padrao) - Number(a.padrao) || (a.contaId ?? 0) - (b.contaId ?? 0));
+  if (contas.length && !contas.some((c) => c.padrao)) contas[0] = { ...contas[0], padrao: true };
+  return contas;
 }
 
 export const DICA_SEM_CREDENCIAIS =
-  'Configure o Gmail em Configurações (e-mail do remetente e Senha de App de 16 letras).';
+  'Adicione uma conta Gmail em Configurações → Contas de envio (e-mail do remetente e Senha de App de 16 letras).';
 
 /** Dica em pt-BR para erros comuns de envio pelo Gmail (null se não reconhecido). */
 export function dicaErroEmail(mensagem: string): string | null {

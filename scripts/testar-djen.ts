@@ -23,7 +23,7 @@
 //   --uf UF            UF da OAB (exige --oab)
 //
 // Opções:
-//   --dias N        dias retroativos (0..30, padrão 3)
+//   --dias N        dias retroativos da primeira busca (0..30, padrão 3; o período é automático)
 //   --hoje AAAA-MM-DD  data de referência (padrão: hoje em São Paulo)
 //   --prazo S       orçamento de tempo da busca em segundos (padrão 110)
 //   --max-email N   comunicações por e-mail (padrão 20)
@@ -39,7 +39,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { dataBrasil } from '../supabase/functions/_shared/datas.ts';
 import { ClienteDjen } from '../supabase/functions/_shared/djen-client.ts';
-import type { MensagemEmail, TransporteEmail } from '../supabase/functions/_shared/email.ts';
+import type { MensagemEmail, RemetenteEmail, TransporteEmail } from '../supabase/functions/_shared/email.ts';
 import { transporteGmailDoAmbiente } from '../supabase/functions/_shared/email-gmail.ts';
 import { parametrosDoMonitor, resumoFiltros } from '../supabase/functions/_shared/mapeamento.ts';
 import { RepositorioMemoria } from '../supabase/functions/_shared/repositorio.ts';
@@ -105,6 +105,10 @@ const monitor: Monitor = {
   dias_retroativos: Number(str('dias') ?? 3),
   ultima_sincronizacao: null,
   ultimo_erro: null,
+  dias_semana: [0, 1, 2, 3, 4, 5, 6],
+  horarios: null,
+  ultimo_envio_agendado: null,
+  conta_envio_id: null,
 };
 
 // --------------------------------------------------------- transporte em arquivo
@@ -153,7 +157,7 @@ async function main() {
   const dryRun = args['dry-run'] === true;
   const repo = new RepositorioMemoria({
     monitores: [monitor],
-    configuracoes: { emails_padrao: para, assunto_prefixo: '[DJEN]' },
+    configuracoes: { emails_recebem_tudo: para, assunto_prefixo: '[DJEN]' },
   });
 
   console.log(`Monitor: ${monitor.nome} | dias_retroativos=${monitor.dias_retroativos} | hoje=${hoje}`);
@@ -179,10 +183,17 @@ async function main() {
     } else {
       transporte = new TransporteArquivo(saida, rodada === 1 ? '' : `-rodada${rodada}`);
     }
+    const remetente: RemetenteEmail = {
+      contaId: null,
+      email: transporte.nome,
+      padrao: true,
+      origem: 'secrets',
+      transporte,
+    };
     const resumo = await executarSincronizacao({
       repo,
       cliente,
-      transporte,
+      remetentes: [remetente],
       origem: 'manual',
       dryRun,
       regiao: 'local-node',

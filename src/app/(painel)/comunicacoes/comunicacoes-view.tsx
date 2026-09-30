@@ -73,7 +73,7 @@ function lerFiltros(sp: URLSearchParams): Filtros {
   return {
     q: sp.get("q") ?? "",
     tribunal: (sp.get("tribunal") ?? "").toUpperCase(),
-    monitor: /^\d+$/.test(sp.get("monitor") ?? "") ? (sp.get("monitor") as string) : "",
+    monitor: /^(\d+|sem)$/.test(sp.get("monitor") ?? "") ? (sp.get("monitor") as string) : "",
     de: data(sp.get("de")),
     ate: data(sp.get("ate")),
     naoLidas: sp.get("naoLidas") === "1",
@@ -88,7 +88,9 @@ function limparTermo(t: string) {
 
 async function buscarComunicacoes(f: Filtros) {
   const sb = supabase();
-  const embed = f.monitor ? "monitor_comunicacoes!inner(monitor_id)" : "monitor_comunicacoes(monitor_id)";
+  // "sem" = comunicações sem monitor vinculado (ex.: o monitor foi removido).
+  const porMonitor = f.monitor !== "" && f.monitor !== "sem";
+  const embed = porMonitor ? "monitor_comunicacoes!inner(monitor_id)" : "monitor_comunicacoes(monitor_id)";
   let q = sb.from("comunicacoes").select(`${COLUNAS},${embed}`, { count: "exact" });
 
   const termo = limparTermo(f.q);
@@ -104,7 +106,8 @@ async function buscarComunicacoes(f: Filtros) {
     q = q.or(conds.join(","));
   }
   if (f.tribunal) q = q.eq("sigla_tribunal", f.tribunal);
-  if (f.monitor) q = q.eq("monitor_comunicacoes.monitor_id", Number(f.monitor));
+  if (porMonitor) q = q.eq("monitor_comunicacoes.monitor_id", Number(f.monitor));
+  else if (f.monitor === "sem") q = q.is("monitor_comunicacoes", null);
   if (f.de) q = q.gte("data_disponibilizacao", f.de);
   if (f.ate) q = q.lte("data_disponibilizacao", f.ate);
   if (f.naoLidas) q = q.eq("lida", false);
@@ -212,6 +215,11 @@ export function ComunicacoesView() {
   const itensMonitor = [
     { value: "", label: "Todos os monitores" },
     ...(aux.dados?.monitores ?? []).map((m) => ({ value: String(m.id), label: m.nome })),
+    // Link antigo para um monitor que não existe mais (ex.: removido).
+    ...(/^\d+$/.test(filtros.monitor) && aux.dados && !nomesMonitores.has(Number(filtros.monitor))
+      ? [{ value: filtros.monitor, label: `Monitor removido (#${filtros.monitor})` }]
+      : []),
+    { value: "sem", label: "Sem monitor (removido)" },
   ];
 
   const inicio = total === 0 ? 0 : (filtros.pagina - 1) * TAMANHO_PAGINA + 1;
@@ -397,12 +405,12 @@ export function ComunicacoesView() {
                 {linhas.map((c) => (
                   <TableRow
                     key={c.id}
-                    className={cn("cursor-pointer", !c.lida && "bg-sky-500/[0.04]")}
+                    className={cn("cursor-pointer", !c.lida && "bg-accent/50")}
                     onClick={() => abrir(c.id)}
                   >
                     <TableCell className="pl-4">
                       <span
-                        className={cn("block size-2 rounded-full", c.lida ? "bg-border" : "bg-sky-500")}
+                        className={cn("block size-2 rounded-full", c.lida ? "bg-border" : "bg-primary")}
                         title={c.lida ? "Lida" : "Não lida"}
                       />
                     </TableCell>
@@ -411,7 +419,7 @@ export function ComunicacoesView() {
                       <button
                         type="button"
                         className={cn(
-                          "text-left font-mono text-xs hover:underline sm:text-sm",
+                          "text-left tabular-nums text-xs hover:underline sm:text-sm",
                           !c.lida && "font-semibold",
                         )}
                         onClick={(e) => {
@@ -434,9 +442,17 @@ export function ComunicacoesView() {
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">
                       <div className="flex max-w-56 flex-wrap gap-1">
+                        {c.monitor_comunicacoes.length === 0 && (
+                          <span
+                            className="text-muted-foreground"
+                            title="Sem monitor vinculado (removido) — não será enviada por e-mail"
+                          >
+                            —
+                          </span>
+                        )}
                         {c.monitor_comunicacoes.slice(0, 2).map((mc) => (
                           <Badge key={mc.monitor_id} variant="secondary" className="max-w-40 truncate">
-                            {nomesMonitores.get(mc.monitor_id) ?? `#${mc.monitor_id}`}
+                            {nomesMonitores.get(mc.monitor_id) ?? "Monitor removido"}
                           </Badge>
                         ))}
                         {c.monitor_comunicacoes.length > 2 && (

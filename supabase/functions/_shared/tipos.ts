@@ -1,6 +1,6 @@
 // Tipos compartilhados do motor de sincronização do DJEN Monitor.
 // Espelham o contrato em supabase/migrations/20260928203046_schema.sql e
-// supabase/migrations/*_monitores_filtros.sql.
+// supabase/migrations/*_monitores_filtros.sql e *_agendamento_monitores.sql.
 // Código portável: roda no Deno (Edge Function) e no Node (tsx).
 
 export type OrigemSync = 'cron' | 'manual';
@@ -56,9 +56,18 @@ export interface Monitor extends FiltrosMonitor {
   nome: string;
   emails: string[] | null;
   ativo: boolean;
+  /** Janela (em dias) apenas da PRIMEIRA busca (monitor nunca sincronizado). */
   dias_retroativos: number;
   ultima_sincronizacao: string | null;
   ultimo_erro: string | null;
+  /** Dias em que roda/envia: 0 = domingo … 6 = sábado (horário de Brasília). Padrão seg–sex. */
+  dias_semana: number[];
+  /** Horários fixos de envio 'HH:MM' (:00/:30). null/vazio = assim que publicar (a cada 30 min). */
+  horarios: string[] | null;
+  /** Controle interno: instante (hoje@HH:MM) do último horário agendado já processado. */
+  ultimo_envio_agendado: string | null;
+  /** Conta Gmail remetente (public.contas_envio.id); null = conta padrão. */
+  conta_envio_id: number | null;
 }
 
 /** Item bruto devolvido por GET /api/v1/comunicacao */
@@ -133,7 +142,9 @@ export interface Comunicacao extends NovaComunicacao {
 }
 
 /** Monitor vinculado a uma comunicação pendente (os filtros servem para descrevê-lo no e-mail). */
-export type MonitorVinculado = Pick<Monitor, 'id' | 'nome' | 'emails'> & Partial<FiltrosMonitor>;
+export type MonitorVinculado = Pick<Monitor, 'id' | 'nome' | 'emails'> &
+  Partial<Pick<Monitor, 'ativo' | 'conta_envio_id'>> &
+  Partial<FiltrosMonitor>;
 
 /** Comunicação ainda não notificada + monitores que a encontraram */
 export interface ComunicacaoPendente extends Comunicacao {
@@ -141,13 +152,14 @@ export interface ComunicacaoPendente extends Comunicacao {
 }
 
 export interface Configuracoes {
-  emails_padrao: string[];
+  /** Recebem as comunicações de TODOS os monitores (configuracoes.emails_recebem_tudo). */
+  emails_recebem_tudo: string[];
   assunto_prefixo: string;
   notificar_sem_novidades: boolean;
 }
 
 export const CONFIGURACOES_PADRAO: Configuracoes = {
-  emails_padrao: [],
+  emails_recebem_tudo: [],
   assunto_prefixo: '[DJEN]',
   notificar_sem_novidades: false,
 };
@@ -165,6 +177,18 @@ export interface DetalheMonitor {
   subdividido?: boolean;
   truncado?: boolean;
   intervalo?: { inicio: string; fim: string };
+  /** Situação no agendamento: 'assim que publicar', 'horário das 08:00', 'manual (ignora o agendamento)'. */
+  agendamento?: string;
+  /** Horário agendado ('HH:MM') processado nesta execução, se houver. */
+  horario?: string;
+  /** true = horário concluído e gravado em ultimo_envio_agendado; false = será tentado de novo. */
+  horario_concluido?: boolean;
+  /** Monitor não processado nesta execução por estar fora do agendamento (não consome a API). */
+  pulado?: 'fora do agendamento';
+  /** Motivo curto do pulo (ex.: "sábado não está nos dias escolhidos", "próximo envio às 17:30"). */
+  motivo?: string;
+  /** O orçamento de tempo acabou antes de buscar este monitor. */
+  nao_processado?: boolean;
 }
 
 export interface FinalizacaoExecucao {
@@ -175,6 +199,13 @@ export interface FinalizacaoExecucao {
   emails_enviados: number;
   mensagem: string | null;
   detalhes: Record<string, unknown>;
+}
+
+/** Linha de public.envios: uma comunicação entregue a um destinatário. */
+export interface RegistroEnvio {
+  comunicacao_id: number;
+  destinatario: string;
+  conta_envio_id: number | null;
 }
 
 export interface ExecucaoResumida {
